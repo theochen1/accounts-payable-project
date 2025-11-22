@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Matching Configuration
     matching_tolerance: float = 0.01  # 1% tolerance for total amount matching
     
+    # CORS Configuration
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,https://*.vercel.app"
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
