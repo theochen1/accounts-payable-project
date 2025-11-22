@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import invoices, purchase_orders, vendors
 from app.database import engine, Base
 from app.config import settings
-import re
 
 # Create tables (in production, use migrations)
 # Base.metadata.create_all(bind=engine)
@@ -16,21 +15,21 @@ app = FastAPI(
 
 # Parse CORS origins from config
 def parse_cors_origins(origins_str: str) -> list:
-    """Parse CORS origins string into a list, handling wildcards for Vercel."""
+    """Parse CORS origins string into a list, excluding wildcards."""
     origins = []
     for origin in origins_str.split(","):
         origin = origin.strip()
-        if origin.startswith("https://") and "*.vercel.app" in origin:
-            # Allow all Vercel preview and production deployments
-            origins.append(re.compile(r"https://.*\.vercel\.app$"))
-        else:
+        # Skip wildcard entries (will be handled by allow_origin_regex)
+        if "*.vercel.app" not in origin and origin:
             origins.append(origin)
     return origins
 
-# CORS middleware
+# CORS middleware - using allow_origin_regex for Vercel wildcard support
+cors_origins = parse_cors_origins(settings.cors_origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=parse_cors_origins(settings.cors_origins),
+    allow_origins=cors_origins if cors_origins else ["http://localhost:3000", "http://localhost:3001"],
+    allow_origin_regex=r"https://.*\.vercel\.app$",  # Allow all Vercel deployments
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
