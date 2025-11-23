@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
+import os
 from app.database import get_db
 from app.models.invoice import Invoice
 from app.models.vendor import Vendor
@@ -147,19 +148,26 @@ async def upload_invoice(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Upload PDF invoice, process with OCR, and run matching"""
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    """Upload invoice (PDF or image), process with OCR, and run matching"""
+    # Allowed file extensions
+    allowed_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
+    file_ext = os.path.splitext(file.filename.lower())[1] if file.filename else ''
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"File type not supported. Allowed types: PDF, PNG, JPG, JPEG, GIF, BMP, WEBP, TIFF"
+        )
     
     # Read file content
     file_content = await file.read()
     
     # Upload to storage
-    storage_path = storage_service.upload_pdf(file_content, file.filename)
+    storage_path = storage_service.upload_file(file_content, file.filename)
     
     # Process with OCR
     try:
-        ocr_data = await ocr_service.process_pdf(file_content, file.filename)
+        ocr_data = await ocr_service.process_file(file_content, file.filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
     

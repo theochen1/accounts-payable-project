@@ -29,12 +29,28 @@ class StorageService:
             # Fallback to local filesystem if no S3 config
             self.s3_client = None
     
-    def upload_pdf(self, file_content: bytes, filename: str) -> str:
+    def _get_content_type(self, filename: str) -> str:
+        """Determine content type based on file extension"""
+        ext = filename.lower().split('.')[-1] if '.' in filename else ''
+        content_types = {
+            'pdf': 'application/pdf',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'gif': 'image/gif',
+            'bmp': 'image/bmp',
+            'webp': 'image/webp',
+            'tiff': 'image/tiff',
+            'tif': 'image/tiff',
+        }
+        return content_types.get(ext, 'application/octet-stream')
+    
+    def upload_file(self, file_content: bytes, filename: str) -> str:
         """
-        Upload PDF file to object storage and return storage path
+        Upload file (PDF or image) to object storage and return storage path
         
         Args:
-            file_content: Binary content of the PDF file
+            file_content: Binary content of the file
             filename: Original filename
             
         Returns:
@@ -44,6 +60,7 @@ class StorageService:
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         file_ext = os.path.splitext(filename)[1] or ".pdf"
         storage_key = f"invoices/{timestamp}_{filename}"
+        content_type = self._get_content_type(filename)
         
         if self.s3_client:
             try:
@@ -51,7 +68,7 @@ class StorageService:
                     Bucket=self.bucket_name,
                     Key=storage_key,
                     Body=file_content,
-                    ContentType='application/pdf'
+                    ContentType=content_type
                 )
                 return storage_key
             except ClientError as e:
@@ -64,6 +81,10 @@ class StorageService:
             with open(local_path, 'wb') as f:
                 f.write(file_content)
             return local_path
+    
+    def upload_pdf(self, file_content: bytes, filename: str) -> str:
+        """Legacy method for backward compatibility"""
+        return self.upload_file(file_content, filename)
     
     def get_pdf_url(self, storage_path: str, expires_in: int = 3600) -> str:
         """

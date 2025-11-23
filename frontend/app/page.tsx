@@ -76,12 +76,12 @@ export default function Home() {
 
         <div>
           <label htmlFor="file-upload" className="button button-primary" style={{ cursor: 'pointer', display: 'inline-block' }}>
-            Upload Invoice PDF
+            Upload Invoice (PDF/Image)
           </label>
           <input
             id="file-upload"
             type="file"
-            accept=".pdf"
+            accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tiff,.tif"
             onChange={handleFileUpload}
             style={{ display: 'none' }}
           />

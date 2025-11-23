@@ -15,12 +15,28 @@ class OCRService:
         self.timeout = settings.ocr_timeout_seconds
         self.max_retries = settings.ocr_max_retries
     
-    async def process_pdf(self, pdf_content: bytes, filename: str) -> Dict:
+    def _get_content_type(self, filename: str) -> str:
+        """Determine content type based on file extension"""
+        ext = filename.lower().split('.')[-1] if '.' in filename else ''
+        content_types = {
+            'pdf': 'application/pdf',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'gif': 'image/gif',
+            'bmp': 'image/bmp',
+            'webp': 'image/webp',
+            'tiff': 'image/tiff',
+            'tif': 'image/tiff',
+        }
+        return content_types.get(ext, 'application/octet-stream')
+    
+    async def process_file(self, file_content: bytes, filename: str) -> Dict:
         """
-        Process PDF through DeepSeek-OCR API
+        Process file (PDF or image) through DeepSeek-OCR API
         
         Args:
-            pdf_content: Binary content of the PDF file
+            file_content: Binary content of the file
             filename: Original filename
             
         Returns:
@@ -30,8 +46,9 @@ class OCRService:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         
+        content_type = self._get_content_type(filename)
         files = {
-            "file": (filename, pdf_content, "application/pdf")
+            "file": (filename, file_content, content_type)
         }
         
         async with httpx.AsyncClient(timeout=self.timeout) as client:
