@@ -6,10 +6,11 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql://user:password@localhost/ap_platform"
     
-    # OCR Configuration
-    deepseek_ocr_api_url: str = "https://api.deepseek.com/ocr"  # Default placeholder
-    deepseek_ocr_api_key: Optional[str] = None
-    ocr_timeout_seconds: int = 30
+    # OCR Configuration (using DeepSeek chat-completions API)
+    deepseek_api_url: str = "https://api.deepseek.com/v1/chat/completions"
+    deepseek_api_key: Optional[str] = None
+    deepseek_model: str = "deepseek-chat"  # Use deepseek-chat or multimodal variant
+    ocr_timeout_seconds: int = 60  # Increased for LLM processing
     ocr_max_retries: int = 3
     
     # Storage Configuration (S3-compatible)
