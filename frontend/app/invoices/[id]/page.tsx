@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { invoiceApi, InvoiceDetail } from '@/lib/api';
-import InvoiceDetailView from '@/components/InvoiceDetail';
-import MatchingComparison from '@/components/MatchingComparison';
-import ActionButtons from '@/components/ActionButtons';
+import { invoiceApi, InvoiceDetail } from '../../../lib/api';
+import InvoiceDetailView from '../../../components/InvoiceDetail';
+import MatchingComparison from '../../../components/MatchingComparison';
+import ActionButtons from '../../../components/ActionButtons';
 
 export default function InvoiceDetailPage() {
   const params = useParams();

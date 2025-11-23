@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { InvoiceDetail } from '@/lib/api';
+import { InvoiceDetail } from '../lib/api';
 
 interface ActionButtonsProps {
   invoice: InvoiceDetail;
