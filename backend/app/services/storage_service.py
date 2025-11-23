@@ -4,6 +4,9 @@ from typing import Optional
 import os
 from datetime import datetime
 from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class StorageService:
@@ -12,21 +15,25 @@ class StorageService:
     def __init__(self):
         self.bucket_name = settings.storage_bucket_name
         
-        # Initialize S3 client
-        s3_config = {}
-        if settings.storage_endpoint_url:
-            s3_config['endpoint_url'] = settings.storage_endpoint_url
-        if settings.storage_access_key_id:
-            s3_config['aws_access_key_id'] = settings.storage_access_key_id
-        if settings.storage_secret_access_key:
-            s3_config['aws_secret_access_key'] = settings.storage_secret_access_key
-        if settings.storage_region:
-            s3_config['region_name'] = settings.storage_region
-        
-        if s3_config:
-            self.s3_client = boto3.client('s3', **s3_config)
+        # Initialize S3 client only if we have credentials
+        # Require both access key and secret key to use S3
+        if settings.storage_access_key_id and settings.storage_secret_access_key:
+            s3_config = {
+                'aws_access_key_id': settings.storage_access_key_id,
+                'aws_secret_access_key': settings.storage_secret_access_key,
+            }
+            if settings.storage_endpoint_url:
+                s3_config['endpoint_url'] = settings.storage_endpoint_url
+            if settings.storage_region:
+                s3_config['region_name'] = settings.storage_region
+            
+            try:
+                self.s3_client = boto3.client('s3', **s3_config)
+            except Exception as e:
+                logger.warning(f"Failed to initialize S3 client, falling back to local storage: {str(e)}")
+                self.s3_client = None
         else:
-            # Fallback to local filesystem if no S3 config
+            # Fallback to local filesystem if no S3 credentials
             self.s3_client = None
     
     def _get_content_type(self, filename: str) -> str:
