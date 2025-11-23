@@ -5,9 +5,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // Don't set default Content-Type - set it per request type
+  // File uploads need multipart/form-data, JSON requests need application/json
 });
 
 export interface Invoice {
@@ -127,6 +126,10 @@ export const invoiceApi = {
       decision: 'approved',
       reason,
       user_identifier: 'manager@example.com',
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   },
 
@@ -135,6 +138,10 @@ export const invoiceApi = {
       decision: 'rejected',
       reason,
       user_identifier: 'manager@example.com',
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   },
 
@@ -143,6 +150,10 @@ export const invoiceApi = {
       decision: 'routed',
       reason,
       user_identifier: 'manager@example.com',
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   },
 };
