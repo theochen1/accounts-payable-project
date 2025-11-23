@@ -117,11 +117,8 @@ export const invoiceApi = {
   upload: async (file: File): Promise<{ id: number; invoice_number: string; status: string }> => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await api.post('/api/invoices/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    // Don't set Content-Type header - let axios set it automatically with boundary
+    const response = await api.post('/api/invoices/upload', formData);
     return response.data;
   },
 
