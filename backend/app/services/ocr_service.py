@@ -95,8 +95,9 @@ class OCRService:
             "text": "Please extract all invoice information from this image and return it as JSON."
         }
         
-        # For multimodal support, we need to check if DeepSeek supports image_url format
-        # Using OpenAI-compatible format
+        # Try OpenAI-compatible multimodal format first
+        # If DeepSeek doesn't support images, we'll fall back to text-only
+        # Note: DeepSeek may not support multimodal inputs - if this fails, consider using a different OCR service
         messages = [
             {
                 "role": "system",
