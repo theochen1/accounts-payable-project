@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.routers import invoices, purchase_orders, vendors
 from app.database import engine, Base
 from app.config import settings
+import logging
 
 # Create tables (in production, use migrations)
 # Base.metadata.create_all(bind=engine)
@@ -26,13 +28,17 @@ def parse_cors_origins(origins_str: str) -> list:
 
 # CORS middleware - using allow_origin_regex for Vercel wildcard support
 cors_origins = parse_cors_origins(settings.cors_origins)
+# Default origins for local development
+default_origins = ["http://localhost:3000", "http://localhost:3001"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins if cors_origins else ["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=cors_origins if cors_origins else default_origins,
     allow_origin_regex=r"https://.*\.vercel\.app$",  # Allow all Vercel deployments
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include routers
@@ -49,4 +55,20 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+# Exception handler to ensure CORS headers are always sent
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler to ensure CORS headers are sent even on errors"""
+    logging.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
