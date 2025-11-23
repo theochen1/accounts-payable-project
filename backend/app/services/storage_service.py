@@ -29,12 +29,23 @@ class StorageService:
             
             try:
                 self.s3_client = boto3.client('s3', **s3_config)
+                logger.info("S3 storage initialized successfully")
             except Exception as e:
                 logger.warning(f"Failed to initialize S3 client, falling back to local storage: {str(e)}")
                 self.s3_client = None
         else:
             # Fallback to local filesystem if no S3 credentials
+            logger.info("No S3 credentials found, using local filesystem storage")
             self.s3_client = None
+        
+        # Initialize local storage directory
+        self.local_storage_dir = os.path.abspath("local_storage/invoices")
+        try:
+            os.makedirs(self.local_storage_dir, exist_ok=True)
+            logger.info(f"Local storage directory initialized: {self.local_storage_dir}")
+        except Exception as e:
+            logger.error(f"Failed to create local storage directory: {str(e)}")
+            raise
     
     def _get_content_type(self, filename: str) -> str:
         """Determine content type based on file extension"""
@@ -82,12 +93,16 @@ class StorageService:
                 raise Exception(f"Failed to upload to S3: {str(e)}")
         else:
             # Fallback to local filesystem storage
-            local_storage_dir = "local_storage/invoices"
-            os.makedirs(local_storage_dir, exist_ok=True)
-            local_path = os.path.join(local_storage_dir, f"{timestamp}_{filename}")
-            with open(local_path, 'wb') as f:
-                f.write(file_content)
-            return local_path
+            try:
+                # Use absolute path for better reliability
+                local_path = os.path.join(self.local_storage_dir, f"{timestamp}_{filename}")
+                with open(local_path, 'wb') as f:
+                    f.write(file_content)
+                logger.info(f"File saved to local storage: {local_path}")
+                return local_path
+            except Exception as e:
+                logger.error(f"Failed to save file to local storage: {str(e)}")
+                raise Exception(f"Failed to save file: {str(e)}")
     
     def upload_pdf(self, file_content: bytes, filename: str) -> str:
         """Legacy method for backward compatibility"""
@@ -139,10 +154,19 @@ class StorageService:
                 raise Exception(f"Failed to download from S3: {str(e)}")
         else:
             # For local storage
+            # Handle both absolute and relative paths
+            if not os.path.isabs(storage_path):
+                storage_path = os.path.join(self.local_storage_dir, os.path.basename(storage_path))
+            
             if not os.path.exists(storage_path):
                 raise FileNotFoundError(f"File not found: {storage_path}")
-            with open(storage_path, 'rb') as f:
-                return f.read()
+            
+            try:
+                with open(storage_path, 'rb') as f:
+                    return f.read()
+            except Exception as e:
+                logger.error(f"Failed to read file from local storage: {str(e)}")
+                raise Exception(f"Failed to read file: {str(e)}")
 
 
 storage_service = StorageService()
