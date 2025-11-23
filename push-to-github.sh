@@ -18,8 +18,8 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 # Replace these with your actual values
-GITHUB_USERNAME="YOUR_USERNAME"
-REPO_NAME="YOUR_REPO_NAME"
+GITHUB_USERNAME="theochen1"
+REPO_NAME="accounts-payable-project"
 
 # Rename branch to main (if not already)
 git branch -M main
