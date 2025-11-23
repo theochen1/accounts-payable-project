@@ -1,6 +1,6 @@
 'use client';
 
-import { InvoiceDetail, PurchaseOrder, MatchingResult } from '../lib/api';
+import { InvoiceDetail, PurchaseOrder, MatchingResult } from '@/lib/api';
 
 interface MatchingComparisonProps {
   invoice: InvoiceDetail;

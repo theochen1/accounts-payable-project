@@ -1,6 +1,6 @@
 'use client';
 
-import { InvoiceDetail as InvoiceDetailType } from '../lib/api';
+import { InvoiceDetail as InvoiceDetailType } from '@/lib/api';
 
 interface InvoiceDetailProps {
   invoice: InvoiceDetailType;

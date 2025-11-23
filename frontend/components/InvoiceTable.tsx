@@ -1,6 +1,6 @@
 'use client';
 
-import { Invoice } from '../lib/api';
+import { Invoice } from '@/lib/api';
 
 interface InvoiceTableProps {
   invoices: Invoice[];

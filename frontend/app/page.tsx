@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { invoiceApi, Invoice } from '../lib/api';
-import InvoiceTable from '../components/InvoiceTable';
+import { invoiceApi, Invoice } from '@/lib/api';
+import InvoiceTable from '@/components/InvoiceTable';
 
 export default function Home() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
