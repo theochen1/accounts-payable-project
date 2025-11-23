@@ -147,9 +147,16 @@ class OCRService:
                     return self._parse_llm_response(content, response_data)
                     
                 except httpx.HTTPStatusError as e:
-                    logger.error(f"DeepSeek API error (attempt {attempt + 1}/{self.max_retries}): {e.response.status_code} - {e.response.text}")
+                    error_text = e.response.text
+                    logger.error(f"DeepSeek API error (attempt {attempt + 1}/{self.max_retries}): {e.response.status_code} - {error_text}")
+                    
+                    # If 404, DeepSeek might not support multimodal inputs
+                    if e.response.status_code == 404:
+                        logger.warning("DeepSeek API returned 404. This may indicate that multimodal (image) inputs are not supported.")
+                        logger.warning("Consider using a different OCR service or converting images to text descriptions first.")
+                    
                     if attempt == self.max_retries - 1:
-                        raise Exception(f"DeepSeek API failed after {self.max_retries} attempts: {e.response.status_code} - {e.response.text}")
+                        raise Exception(f"DeepSeek API failed after {self.max_retries} attempts: {e.response.status_code} - {error_text}")
                 except httpx.TimeoutException as e:
                     logger.error(f"DeepSeek API timeout (attempt {attempt + 1}/{self.max_retries}): {str(e)}")
                     if attempt == self.max_retries - 1:
