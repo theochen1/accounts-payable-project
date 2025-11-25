@@ -200,11 +200,24 @@ async def upload_invoice(
     
     # Create invoice record
     from decimal import Decimal
+    
+    # Parse invoice_date string to date object if present
+    invoice_date_obj = None
+    invoice_date_str = ocr_data.get("invoice_date")
+    if invoice_date_str:
+        try:
+            # Parse YYYY-MM-DD format
+            invoice_date_obj = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
+            logger.info(f"Parsed invoice_date: '{invoice_date_str}' -> {invoice_date_obj}")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to parse invoice_date '{invoice_date_str}': {str(e)}")
+            invoice_date_obj = None
+    
     invoice = Invoice(
         invoice_number=ocr_data.get("invoice_number", "UNKNOWN"),
         vendor_id=vendor_id,
         po_number=ocr_data.get("po_number"),
-        invoice_date=ocr_data.get("invoice_date"),
+        invoice_date=invoice_date_obj,  # Use parsed date object
         total_amount=Decimal(str(ocr_data["total_amount"])) if ocr_data.get("total_amount") else None,
         currency=ocr_data.get("currency", "USD"),
         pdf_storage_path=storage_path,
