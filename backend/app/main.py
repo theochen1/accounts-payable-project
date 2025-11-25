@@ -31,9 +31,18 @@ cors_origins = parse_cors_origins(settings.cors_origins)
 # Default origins for local development
 default_origins = ["http://localhost:3000", "http://localhost:3001"]
 
+# Explicitly add common Vercel domains
+vercel_domains = [
+    "https://accounts-payable-project.vercel.app",
+    "https://accounts-payable-project-git-main-theo-chens-projects.vercel.app",
+]
+
+# Combine all origins
+all_origins = (cors_origins if cors_origins else default_origins) + vercel_domains
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins if cors_origins else default_origins,
+    allow_origins=all_origins,
     allow_origin_regex=r"https://.*\.vercel\.app$",  # Allow all Vercel deployments
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
@@ -62,13 +71,27 @@ def health_check():
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler to ensure CORS headers are sent even on errors"""
     logging.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    
+    # Get the origin from the request
+    origin = request.headers.get("origin", "*")
+    
+    # Check if origin is a Vercel domain or in allowed origins
+    is_allowed = (
+        origin.endswith(".vercel.app") or
+        origin in all_origins or
+        any(origin == o for o in default_origins)
+    )
+    
+    cors_origin = origin if is_allowed else "*"
+    
     return JSONResponse(
         status_code=500,
         content={"detail": f"Internal server error: {str(exc)}"},
         headers={
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": cors_origin,
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
             "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "true",
         }
     )
 
