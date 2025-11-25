@@ -7,6 +7,9 @@ from typing import Dict, Optional
 from openai import AsyncOpenAI
 from app.config import settings
 import logging
+from io import BytesIO
+from pdf2image import convert_from_bytes
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +153,24 @@ class OCRService:
         file_ext = filename.lower().split('.')[-1] if '.' in filename else ''
         is_pdf = file_ext == 'pdf'
         
+        # If PDF, convert to image first (Clarifai OCR can't process PDFs directly)
         if is_pdf:
-            logger.info("Processing PDF file. Converting to data URL...")
+            logger.info("Processing PDF file. Converting PDF to image...")
+            try:
+                # Convert PDF to images (first page only for now)
+                images = convert_from_bytes(file_content, first_page=1, last_page=1, dpi=300)
+                if not images:
+                    raise Exception("PDF conversion produced no images")
+                
+                # Convert first page to bytes
+                img_buffer = BytesIO()
+                images[0].save(img_buffer, format='PNG')
+                file_content = img_buffer.getvalue()
+                filename = filename.replace('.pdf', '.png')  # Update extension for content type
+                logger.info(f"PDF converted to image. Image size: {len(file_content)} bytes")
+            except Exception as e:
+                logger.error(f"Failed to convert PDF to image: {str(e)}")
+                raise Exception(f"PDF to image conversion failed: {str(e)}")
         
         # Create the image data URL
         image_data_url = self._get_data_url(file_content, filename)
