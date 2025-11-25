@@ -429,7 +429,7 @@ Return only the JSON object with no additional text or formatting."""
                     messages=messages,
                     temperature=0.1,  # Low temperature for consistent extraction
                     timeout=self.timeout,
-                    max_tokens=800,  # Cap output to expected JSON size to avoid huge reservations
+                    # Removed max_tokens to allow full response - better for complex invoices
                     response_format={"type": "json_object"} if not self.use_deepseek else None  # OpenAI supports JSON mode
                 )
                 

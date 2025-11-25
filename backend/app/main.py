@@ -89,14 +89,8 @@ def health_check():
     return {"status": "healthy"}
 
 
-@app.get("/api/storage/{file_path:path}")
-async def serve_storage_file(file_path: str):
-    """
-    Serve files from local storage or S3
-    
-    Args:
-        file_path: Storage path (e.g., "invoices/timestamp_filename.pdf")
-    """
+async def _serve_storage_file(file_path: str):
+    """Helper function to serve files from storage"""
     try:
         # Download file from storage (works for both S3 and local)
         file_content = storage_service.download_pdf(file_path)
@@ -129,6 +123,28 @@ async def serve_storage_file(file_path: str):
     except Exception as e:
         logger.error(f"Error serving file {file_path}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error serving file: {str(e)}")
+
+
+@app.get("/api/storage/{file_path:path}")
+async def serve_storage_file_api(file_path: str):
+    """
+    Serve files from local storage or S3 (API route)
+    
+    Args:
+        file_path: Storage path (e.g., "invoices/timestamp_filename.pdf")
+    """
+    return await _serve_storage_file(file_path)
+
+
+@app.get("/storage/{file_path:path}")
+async def serve_storage_file(file_path: str):
+    """
+    Serve files from local storage or S3 (frontend route)
+    
+    Args:
+        file_path: Storage path (e.g., "invoices/timestamp_filename.pdf")
+    """
+    return await _serve_storage_file(file_path)
 
 
 # Exception handler to ensure CORS headers are always sent

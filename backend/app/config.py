@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     
     # Step 2: LLM parsing (OpenAI or DeepSeek chat API)
     openai_api_key: Optional[str] = None  # OpenAI API key for text parsing
-    openai_model: str = "gpt-3.5-turbo"  # Model for structured data extraction
+    openai_model: str = "gpt-4o-mini"  # Model for structured data extraction (better accuracy than gpt-3.5-turbo)
     # Alternative: Use DeepSeek chat API instead
     use_deepseek_for_parsing: bool = False  # If True, use DeepSeek chat API
     deepseek_api_url: str = "https://api.deepseek.com/v1/chat/completions"
