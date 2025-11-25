@@ -5,6 +5,27 @@ from app.routers import invoices, purchase_orders, vendors
 from app.database import engine, Base
 from app.config import settings
 import logging
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# Log startup information
+logger.info("="*60)
+logger.info("Starting Accounts Payable Platform API")
+logger.info("="*60)
+logger.info(f"OpenAI API Key configured: {bool(settings.openai_api_key)}")
+logger.info(f"Clarifai PAT configured: {bool(settings.clarifai_pat)}")
+logger.info(f"OpenAI Model: {settings.openai_model}")
+logger.info("="*60)
 
 # Create tables (in production, use migrations)
 # Base.metadata.create_all(bind=engine)

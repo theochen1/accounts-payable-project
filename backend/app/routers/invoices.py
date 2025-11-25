@@ -169,12 +169,14 @@ async def upload_invoice(
     storage_path = storage_service.upload_file(file_content, file.filename)
     
     # Process with OCR
+    logger.info(f"Starting OCR processing for file: {file.filename} ({len(file_content)} bytes)")
     try:
         ocr_data = await ocr_service.process_file(file_content, file.filename)
+        logger.info(f"OCR processing completed successfully. Extracted invoice_number: {ocr_data.get('invoice_number')}, vendor: {ocr_data.get('vendor_name')}")
     except Exception as e:
         # For MVP: If OCR fails, create a basic invoice record with minimal data
         # This allows testing the rest of the system even if OCR is not working
-        logger.warning(f"OCR processing failed: {str(e)}. Creating invoice with minimal data.")
+        logger.error(f"OCR processing failed: {str(e)}. Creating invoice with minimal data.", exc_info=True)
         ocr_data = {
             "vendor_name": None,
             "invoice_number": f"INV-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
