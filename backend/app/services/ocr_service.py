@@ -175,12 +175,28 @@ class OCRService:
         last_exception = None
         for attempt in range(self.max_retries):
             try:
-                logger.debug(f"OCR extraction attempt {attempt + 1}/{self.max_retries}")
-                logger.debug(f"Using model URL: {self.ocr_model_url}")
-                logger.debug(f"Messages: {len(messages)} message(s)")
+                logger.info(f"OCR extraction attempt {attempt + 1}/{self.max_retries}")
+                logger.info(f"Using model URL: {self.ocr_model_url}")
+                logger.info(f"Messages: {len(messages)} message(s)")
+                
+                # For Clarifai's OpenAI-compatible API, the model should be just the model ID
+                # Extract model ID from URL if it's a full URL
+                model_id = self.ocr_model_url
+                if model_id.startswith("https://"):
+                    # Extract model ID from URL: https://clarifai.com/user/app/model -> user/app/model
+                    # Or: https://clarifai.com/deepseek-ai/deepseek-ocr/models/DeepSeek-OCR -> deepseek-ai/deepseek-ocr/DeepSeek-OCR
+                    try:
+                        # Remove https://clarifai.com/ prefix
+                        model_id = model_id.replace("https://clarifai.com/", "")
+                        # Replace /models/ with /
+                        model_id = model_id.replace("/models/", "/")
+                        logger.info(f"Extracted model ID from URL: {model_id}")
+                    except Exception as e:
+                        logger.warning(f"Could not extract model ID from URL, using as-is: {e}")
+                        model_id = self.ocr_model_url
                 
                 response = await self.ocr_client.chat.completions.create(
-                    model=self.ocr_model_url,
+                    model=model_id,
                     messages=messages,
                     temperature=0.0,  # Deterministic OCR output
                     timeout=self.timeout
@@ -216,12 +232,30 @@ class OCRService:
                 if hasattr(response, 'object'):
                     logger.info(f"OCR API response.object: {response.object}")
                 
-                # Try to get raw response if available
+                # Log the model ID being used
+                logger.info(f"OCR model ID used: {model_id}")
+                
+                # Check if there's an error in the response
+                if hasattr(response, 'error'):
+                    logger.error(f"OCR API response has error: {response.error}")
+                if hasattr(response, 'usage'):
+                    logger.info(f"OCR API response usage: {response.usage}")
+                
+                # Log all response attributes to see what we have
+                logger.info(f"OCR API response all attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
+                
+                # Try to serialize response to see its structure
                 try:
-                    if hasattr(response, '_response'):
-                        logger.info(f"OCR API raw response available")
-                except:
-                    pass
+                    import json
+                    # Try to convert response to dict
+                    if hasattr(response, 'model_dump'):
+                        response_dict = response.model_dump()
+                        logger.info(f"OCR API response as dict: {json.dumps(response_dict, indent=2, default=str)[:1000]}")
+                    elif hasattr(response, 'dict'):
+                        response_dict = response.dict()
+                        logger.info(f"OCR API response as dict: {json.dumps(response_dict, indent=2, default=str)[:1000]}")
+                except Exception as e:
+                    logger.debug(f"Could not serialize response: {e}")
                 
                 # Extract text from response
                 if not hasattr(response, 'choices') or not response.choices or len(response.choices) == 0:
