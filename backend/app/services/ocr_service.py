@@ -397,7 +397,7 @@ Extract the following information and return ONLY valid JSON (no markdown, no co
 IMPORTANT: 
 - Return ONLY the JSON object, nothing else
 - Use null for missing values (not empty strings)
-- Extract dates in YYYY-MM-DD format if possible
+- For invoice_date: Extract the EXACT date from the document text. If you see "Date: 07/07/2022", convert it to YYYY-MM-DD format as "2022-07-07" (assuming MM/DD/YYYY format). Do NOT change the date value, only reformat it to YYYY-MM-DD.
 - Extract numeric values as numbers, not strings"""
         
         user_message = f"""Extract structured invoice data from the following text and return it as a JSON object:
@@ -623,15 +623,69 @@ Return only the JSON object with no additional text or formatting."""
         
         return data
     
+    def _parse_date(self, date_str: Optional[str]) -> Optional[str]:
+        """
+        Parse and normalize date string to YYYY-MM-DD format
+        
+        Handles various date formats:
+        - MM/DD/YYYY (e.g., "07/07/2022")
+        - DD/MM/YYYY (e.g., "07/07/2022" - ambiguous, assumes MM/DD/YYYY)
+        - YYYY-MM-DD (e.g., "2022-07-07")
+        - YYYY/MM/DD (e.g., "2022/07/07")
+        """
+        if not date_str:
+            return None
+        
+        date_str = date_str.strip()
+        
+        # If already in YYYY-MM-DD format, return as-is
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+            return date_str
+        
+        try:
+            from datetime import datetime
+            
+            # Try common date formats
+            formats = [
+                '%m/%d/%Y',  # MM/DD/YYYY (US format)
+                '%d/%m/%Y',  # DD/MM/YYYY (European format)
+                '%Y/%m/%d',  # YYYY/MM/DD
+                '%m-%d-%Y',  # MM-DD-YYYY
+                '%d-%m-%Y',  # DD-MM-YYYY
+                '%Y-%m-%d',  # YYYY-MM-DD (already handled above, but just in case)
+            ]
+            
+            for fmt in formats:
+                try:
+                    parsed_date = datetime.strptime(date_str, fmt)
+                    # Return in YYYY-MM-DD format
+                    return parsed_date.strftime('%Y-%m-%d')
+                except ValueError:
+                    continue
+            
+            logger.warning(f"Could not parse date format: {date_str}")
+            return None
+        except Exception as e:
+            logger.error(f"Error parsing date {date_str}: {str(e)}")
+            return None
+    
     def _normalize_ocr_response(self, ocr_data: Dict, raw_response: Dict) -> Dict:
         """
         Normalize OCR response to our expected format
         """
+        # Parse and normalize the invoice date
+        raw_date = ocr_data.get("invoice_date")
+        normalized_date = self._parse_date(raw_date)
+        
+        # Log date parsing for debugging
+        if raw_date:
+            logger.info(f"Date parsing: raw='{raw_date}' -> normalized='{normalized_date}'")
+        
         normalized = {
             "vendor_name": ocr_data.get("vendor_name"),
             "invoice_number": ocr_data.get("invoice_number"),
             "po_number": ocr_data.get("po_number"),
-            "invoice_date": ocr_data.get("invoice_date"),
+            "invoice_date": normalized_date,  # Use normalized date
             "total_amount": self._parse_amount(ocr_data.get("total_amount")),
             "currency": (ocr_data.get("currency") or "USD").upper(),
             "line_items": self._normalize_line_items(ocr_data.get("line_items", [])),
