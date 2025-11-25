@@ -203,8 +203,17 @@ class OCRService:
                     fields = doc.fields
                     
                     # Extract vendor name
-                    if 'VendorName' in fields and hasattr(fields['VendorName'], 'value'):
-                        structured_data['vendor_name'] = str(fields['VendorName'].value)
+                    # Azure DI prebuilt-invoice model uses 'VendorName' field
+                    if 'VendorName' in fields:
+                        vendor_field = fields['VendorName']
+                        if hasattr(vendor_field, 'value') and vendor_field.value:
+                            vendor_name = str(vendor_field.value).strip()
+                            structured_data['vendor_name'] = vendor_name
+                            logger.info(f"Extracted vendor name from Azure DI: '{vendor_name}'")
+                        else:
+                            logger.warning(f"VendorName field exists but has no value: {vendor_field}")
+                    else:
+                        logger.warning(f"VendorName field not found in Azure DI response. Available fields: {list(fields.keys()) if fields else 'None'}")
                     
                     # Extract invoice number/ID
                     if 'InvoiceId' in fields and hasattr(fields['InvoiceId'], 'value'):
