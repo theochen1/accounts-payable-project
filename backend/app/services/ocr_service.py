@@ -175,14 +175,32 @@ class OCRService:
         # Create the image data URL
         image_data_url = self._get_data_url(file_content, filename)
         
-        # Simple prompt for OCR - just extract text
+        # Improved OCR prompt with clear instructions
+        ocr_prompt = """You are an OCR (Optical Character Recognition) system. Your task is to extract ALL text from the provided document image.
+
+IMPORTANT INSTRUCTIONS:
+1. Read the text from left to right, top to bottom
+2. Extract ALL visible text including:
+   - Headers and titles
+   - Invoice numbers, dates, and reference numbers
+   - Vendor and customer information
+   - Line items, quantities, prices
+   - Totals and amounts
+   - Any other text visible in the document
+3. Preserve the structure and formatting (use line breaks where appropriate)
+4. Do NOT repeat text - each piece of text should appear only once
+5. Do NOT make up or hallucinate text - only extract what you can actually see
+6. Return ONLY the extracted text, nothing else
+
+Return the complete extracted text from the document:"""
+        
         messages = [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": "Extract all text from this document. Return only the extracted text, preserving the original formatting and structure."
+                        "text": ocr_prompt
                     },
                     {
                         "type": "image_url",
@@ -193,6 +211,9 @@ class OCRService:
                 ]
             }
         ]
+        
+        logger.info(f"OCR prompt length: {len(ocr_prompt)} characters")
+        logger.debug(f"Image data URL length: {len(image_data_url)} characters (first 100: {image_data_url[:100]}...)")
         
         # Retry logic for OCR
         last_exception = None
