@@ -213,8 +213,11 @@ async def upload_invoice(
             logger.warning(f"Failed to parse invoice_date '{invoice_date_str}': {str(e)}")
             invoice_date_obj = None
     
+    # Ensure invoice_number is never None (database constraint)
+    invoice_number = ocr_data.get("invoice_number") or f"INV-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+    
     invoice = Invoice(
-        invoice_number=ocr_data.get("invoice_number", "UNKNOWN"),
+        invoice_number=invoice_number,
         vendor_id=vendor_id,
         po_number=ocr_data.get("po_number"),
         invoice_date=invoice_date_obj,  # Use parsed date object
