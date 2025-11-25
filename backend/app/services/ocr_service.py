@@ -111,9 +111,8 @@ class OCRService:
     
     async def process_file(self, file_content: bytes, filename: str) -> Dict:
         """
-        Two-step process:
-        1. Extract text using DeepSeek-OCR
-        2. Parse text into structured JSON using LLM
+        Extract structured data from invoice (Ramp-style: photo → auto-populated fields)
+        Uses Azure Document Intelligence prebuilt-invoice model for direct structured extraction
         
         Args:
             file_content: Binary content of the file
@@ -122,13 +121,30 @@ class OCRService:
         Returns:
             Structured OCR data as dictionary
         """
-        # Step 1: Extract text using OCR
+        # Try to extract structured data directly from Azure DI first (like Ramp)
+        logger.info("Extracting structured data using Azure Document Intelligence prebuilt-invoice model (Ramp-style)...")
+        try:
+            structured_data = await self._extract_structured_data_azure(file_content, filename)
+            if structured_data and (structured_data.get('vendor_name') or structured_data.get('invoice_number')):
+                logger.info("Successfully extracted structured data directly from Azure DI (Ramp-style)")
+                # Add raw_ocr metadata
+                structured_data['raw_ocr'] = {
+                    "source": "azure_document_intelligence",
+                    "model": self.azure_model,
+                    "direct_extraction": True
+                }
+                return structured_data
+            else:
+                logger.warning("Azure DI extraction returned incomplete data, falling back to text extraction + LLM")
+        except Exception as e:
+            logger.warning(f"Direct structured extraction failed: {str(e)}. Falling back to text extraction + LLM parsing.")
+        
+        # Fallback: Extract text and parse with LLM (two-step process)
         logger.info("Step 1: Extracting text using Azure Document Intelligence...")
         raw_text = await self._extract_text_ocr(file_content, filename)
         
         if not raw_text or not raw_text.strip():
             logger.warning("OCR extraction returned empty text")
-            # Return minimal structure
             return self._create_fallback_response("OCR extraction returned no text")
         
         logger.info(f"OCR extraction successful. Extracted {len(raw_text)} characters.")
@@ -139,6 +155,121 @@ class OCRService:
         structured_data = await self._parse_text_llm(raw_text)
         
         return structured_data
+    
+    async def _extract_structured_data_azure(self, file_content: bytes, filename: str) -> Dict:
+        """
+        Extract structured data directly from Azure Document Intelligence (Ramp-style)
+        Uses prebuilt-invoice model to get structured fields directly
+        
+        Returns:
+            Structured invoice data as dictionary
+        """
+        if not self.azure_client:
+            raise Exception("Azure Document Intelligence credentials not configured")
+        
+        logger.info(f"Extracting structured data directly from Azure DI (model: {self.azure_model})")
+        
+        try:
+            # Analyze document with Azure Document Intelligence prebuilt-invoice model
+            poller = await self.azure_client.begin_analyze_document(
+                model_id=self.azure_model,  # "prebuilt-invoice"
+                body=file_content  # Pass raw bytes directly
+            )
+            
+            # Wait for the result
+            result = await poller.result()
+            
+            logger.info(f"Azure Document Intelligence analysis completed")
+            
+            # Extract structured fields from the result
+            # Azure DI's prebuilt-invoice model returns structured data in result.documents
+            structured_data = {
+                "vendor_name": None,
+                "invoice_number": None,
+                "po_number": None,
+                "invoice_date": None,
+                "total_amount": None,
+                "currency": None,
+                "line_items": []
+            }
+            
+            if hasattr(result, 'documents') and result.documents:
+                doc = result.documents[0]  # Get first document
+                if hasattr(doc, 'fields') and doc.fields:
+                    fields = doc.fields
+                    
+                    # Extract vendor name
+                    if 'VendorName' in fields and hasattr(fields['VendorName'], 'value'):
+                        structured_data['vendor_name'] = str(fields['VendorName'].value)
+                    
+                    # Extract invoice number/ID
+                    if 'InvoiceId' in fields and hasattr(fields['InvoiceId'], 'value'):
+                        structured_data['invoice_number'] = str(fields['InvoiceId'].value)
+                    
+                    # Extract invoice date
+                    if 'InvoiceDate' in fields and hasattr(fields['InvoiceDate'], 'value'):
+                        date_value = fields['InvoiceDate'].value
+                        # Convert to string format
+                        if hasattr(date_value, 'strftime'):
+                            structured_data['invoice_date'] = date_value.strftime('%Y-%m-%d')
+                        else:
+                            structured_data['invoice_date'] = str(date_value)
+                    
+                    # Extract total amount
+                    if 'InvoiceTotal' in fields and hasattr(fields['InvoiceTotal'], 'value'):
+                        total_value = fields['InvoiceTotal'].value
+                        if hasattr(total_value, 'amount'):
+                            structured_data['total_amount'] = float(total_value.amount)
+                            if hasattr(total_value, 'currency_code'):
+                                structured_data['currency'] = total_value.currency_code
+                        else:
+                            structured_data['total_amount'] = float(total_value) if total_value else None
+                    
+                    # Extract PO number (if available)
+                    if 'PurchaseOrder' in fields and hasattr(fields['PurchaseOrder'], 'value'):
+                        structured_data['po_number'] = str(fields['PurchaseOrder'].value)
+                    
+                    # Extract line items
+                    if 'Items' in fields and hasattr(fields['Items'], 'value'):
+                        items = fields['Items'].value
+                        if items:
+                            for idx, item in enumerate(items, start=1):
+                                if hasattr(item, 'value') and isinstance(item.value, dict):
+                                    item_fields = item.value
+                                    line_item = {
+                                        "line_no": idx,
+                                        "sku": None,
+                                        "description": None,
+                                        "quantity": None,
+                                        "unit_price": None
+                                    }
+                                    
+                                    if 'Description' in item_fields and hasattr(item_fields['Description'], 'value'):
+                                        line_item['description'] = str(item_fields['Description'].value)
+                                    
+                                    if 'Quantity' in item_fields and hasattr(item_fields['Quantity'], 'value'):
+                                        line_item['quantity'] = float(item_fields['Quantity'].value)
+                                    
+                                    if 'UnitPrice' in item_fields and hasattr(item_fields['UnitPrice'], 'value'):
+                                        price_value = item_fields['UnitPrice'].value
+                                        if hasattr(price_value, 'amount'):
+                                            line_item['unit_price'] = float(price_value.amount)
+                                        else:
+                                            line_item['unit_price'] = float(price_value) if price_value else None
+                                    
+                                    structured_data['line_items'].append(line_item)
+            
+            # Set default currency if not found
+            if not structured_data['currency']:
+                structured_data['currency'] = 'USD'
+            
+            logger.info(f"Extracted structured data: vendor={structured_data['vendor_name']}, invoice_number={structured_data['invoice_number']}, total={structured_data['total_amount']}")
+            
+            return structured_data
+            
+        except Exception as e:
+            logger.error(f"Error extracting structured data from Azure DI: {str(e)}")
+            raise
     
     async def _extract_text_ocr(self, file_content: bytes, filename: str) -> str:
         """
@@ -164,11 +295,11 @@ class OCRService:
                 logger.info(f"OCR extraction attempt {attempt + 1}/{self.max_retries}")
                 
                 # Analyze document with Azure Document Intelligence
-                # The prebuilt-invoice model extracts structured data, but we'll get the raw text too
-                # Azure DI auto-detects content type from the file
+                # The prebuilt-invoice model extracts structured data directly
+                # For async client, pass file content as bytes directly
                 poller = await self.azure_client.begin_analyze_document(
                     model_id=self.azure_model,  # "prebuilt-invoice"
-                    analyze_request=file_content
+                    body=file_content  # Pass raw bytes directly
                 )
                 
                 # Wait for the result
