@@ -171,9 +171,13 @@ class OCRService:
         
         try:
             # Analyze document with Azure Document Intelligence prebuilt-invoice model
+            # For async client, we can pass bytes directly or use BytesIO
+            from io import BytesIO
+            document_stream = BytesIO(file_content)
+            
             poller = await self.azure_client.begin_analyze_document(
                 model_id=self.azure_model,  # "prebuilt-invoice"
-                body=file_content  # Pass raw bytes directly
+                body=document_stream  # Pass as BytesIO stream
             )
             
             # Wait for the result
@@ -296,10 +300,13 @@ class OCRService:
                 
                 # Analyze document with Azure Document Intelligence
                 # The prebuilt-invoice model extracts structured data directly
-                # For async client, pass file content as bytes directly
+                # For async client, use BytesIO stream
+                from io import BytesIO
+                document_stream = BytesIO(file_content)
+                
                 poller = await self.azure_client.begin_analyze_document(
                     model_id=self.azure_model,  # "prebuilt-invoice"
-                    body=file_content  # Pass raw bytes directly
+                    body=document_stream  # Pass as BytesIO stream
                 )
                 
                 # Wait for the result
