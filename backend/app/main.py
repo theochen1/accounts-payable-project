@@ -1,11 +1,13 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from app.routers import invoices, purchase_orders, vendors
 from app.database import engine, Base
 from app.config import settings
+from app.services.storage_service import storage_service
 import logging
 import sys
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -85,6 +87,48 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/api/storage/{file_path:path}")
+async def serve_storage_file(file_path: str):
+    """
+    Serve files from local storage or S3
+    
+    Args:
+        file_path: Storage path (e.g., "invoices/timestamp_filename.pdf")
+    """
+    try:
+        # Download file from storage (works for both S3 and local)
+        file_content = storage_service.download_pdf(file_path)
+        
+        # Determine content type from file extension
+        file_ext = os.path.splitext(file_path)[1].lower()
+        content_types = {
+            '.pdf': 'application/pdf',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.bmp': 'image/bmp',
+            '.webp': 'image/webp',
+            '.tiff': 'image/tiff',
+            '.tif': 'image/tiff',
+        }
+        media_type = content_types.get(file_ext, 'application/octet-stream')
+        
+        # Return file content
+        return Response(
+            content=file_content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{os.path.basename(file_path)}"'
+            }
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+    except Exception as e:
+        logger.error(f"Error serving file {file_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving file: {str(e)}")
 
 
 # Exception handler to ensure CORS headers are always sent

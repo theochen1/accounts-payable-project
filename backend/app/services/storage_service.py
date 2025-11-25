@@ -94,12 +94,13 @@ class StorageService:
         else:
             # Fallback to local filesystem storage
             try:
-                # Use absolute path for better reliability
+                # Use absolute path for file operations
                 local_path = os.path.join(self.local_storage_dir, f"{timestamp}_{filename}")
                 with open(local_path, 'wb') as f:
                     f.write(file_content)
                 logger.info(f"File saved to local storage: {local_path}")
-                return local_path
+                # Return relative path for storage_key (same format as S3)
+                return storage_key
             except Exception as e:
                 logger.error(f"Failed to save file to local storage: {str(e)}")
                 raise Exception(f"Failed to save file: {str(e)}")
@@ -113,7 +114,7 @@ class StorageService:
         Get a URL to access the PDF file
         
         Args:
-            storage_path: Storage path/key
+            storage_path: Storage path/key (relative path like "invoices/timestamp_filename.pdf")
             expires_in: URL expiration time in seconds (for presigned URLs)
             
         Returns:
@@ -130,8 +131,9 @@ class StorageService:
             except ClientError as e:
                 raise Exception(f"Failed to generate presigned URL: {str(e)}")
         else:
-            # For local storage, return a relative path or file:// URL
-            return f"/storage/{storage_path}"
+            # For local storage, return a relative path for the API route
+            # storage_path is already in format "invoices/timestamp_filename.pdf"
+            return f"/api/storage/{storage_path}"
     
     def download_pdf(self, storage_path: str) -> bytes:
         """
@@ -154,15 +156,21 @@ class StorageService:
                 raise Exception(f"Failed to download from S3: {str(e)}")
         else:
             # For local storage
-            # Handle both absolute and relative paths
-            if not os.path.isabs(storage_path):
-                storage_path = os.path.join(self.local_storage_dir, os.path.basename(storage_path))
+            # storage_path is in format "invoices/timestamp_filename.pdf"
+            # Convert to absolute path
+            if os.path.isabs(storage_path):
+                # If it's already absolute, use it as-is
+                local_file_path = storage_path
+            else:
+                # Extract filename from storage_path (format: "invoices/timestamp_filename.pdf")
+                filename = os.path.basename(storage_path)
+                local_file_path = os.path.join(self.local_storage_dir, filename)
             
-            if not os.path.exists(storage_path):
-                raise FileNotFoundError(f"File not found: {storage_path}")
+            if not os.path.exists(local_file_path):
+                raise FileNotFoundError(f"File not found: {local_file_path}")
             
             try:
-                with open(storage_path, 'rb') as f:
+                with open(local_file_path, 'rb') as f:
                     return f.read()
             except Exception as e:
                 logger.error(f"Failed to read file from local storage: {str(e)}")
