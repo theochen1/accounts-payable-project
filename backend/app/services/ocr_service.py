@@ -188,12 +188,18 @@ class OCRService:
                 
                 logger.debug(f"OCR API call completed. Response received.")
                 
-                # Log response structure for debugging
-                logger.debug(f"OCR API response type: {type(response)}")
+                # Log response structure for debugging (always log, not just on error)
+                logger.info(f"OCR API response type: {type(response)}")
+                logger.info(f"OCR API response has 'choices' attribute: {hasattr(response, 'choices')}")
+                
                 if hasattr(response, 'choices'):
-                    logger.debug(f"OCR API response.choices: {response.choices}")
-                    if response.choices:
-                        logger.debug(f"OCR API response.choices[0]: {response.choices[0]}")
+                    logger.info(f"OCR API response.choices type: {type(response.choices)}")
+                    logger.info(f"OCR API response.choices value: {response.choices}")
+                    logger.info(f"OCR API response.choices length: {len(response.choices) if response.choices else 0}")
+                    if response.choices and len(response.choices) > 0:
+                        logger.info(f"OCR API response.choices[0]: {response.choices[0]}")
+                        if hasattr(response.choices[0], 'message'):
+                            logger.info(f"OCR API response.choices[0].message: {response.choices[0].message}")
                 else:
                     # Log detailed response info when choices is missing
                     logger.error(f"OCR API response has no 'choices' attribute")
@@ -201,18 +207,27 @@ class OCRService:
                     if hasattr(response, '__dict__'):
                         logger.error(f"Response attributes: {list(response.__dict__.keys())}")
                         logger.error(f"Response dict: {response.__dict__}")
-                    # Try to convert to string to see what we got
-                    try:
-                        import json
-                        response_str = str(response)
-                        logger.error(f"Response string representation: {response_str[:500]}")
-                    except:
-                        pass
+                
+                # Also log other response attributes that might be useful
+                if hasattr(response, 'id'):
+                    logger.info(f"OCR API response.id: {response.id}")
+                if hasattr(response, 'model'):
+                    logger.info(f"OCR API response.model: {response.model}")
+                if hasattr(response, 'object'):
+                    logger.info(f"OCR API response.object: {response.object}")
+                
+                # Try to get raw response if available
+                try:
+                    if hasattr(response, '_response'):
+                        logger.info(f"OCR API raw response available")
+                except:
+                    pass
                 
                 # Extract text from response
                 if not hasattr(response, 'choices') or not response.choices or len(response.choices) == 0:
                     error_msg = "OCR API response has no choices"
                     logger.error(f"{error_msg}. This usually means the API returned an unexpected response structure.")
+                    logger.error(f"Full response details logged above. Check response structure.")
                     raise Exception(error_msg)
                 
                 if not response.choices[0].message:
