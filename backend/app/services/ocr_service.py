@@ -302,6 +302,23 @@ Return the complete extracted text from the document:"""
                 if extracted_text is None:
                     raise Exception("OCR API response message content is None")
                 
+                # Validate extracted text - check for repetitive/garbled output
+                # If the same pattern repeats more than 10 times, it's likely garbled
+                if len(extracted_text) > 100:
+                    # Check for repetitive patterns (same substring repeating)
+                    words = extracted_text.split()
+                    if len(words) > 20:
+                        # Check if first few words repeat excessively
+                        first_phrase = ' '.join(words[:5])
+                        occurrences = extracted_text.count(first_phrase)
+                        if occurrences > 10:
+                            logger.warning(f"OCR output appears to be repetitive/garbled. Pattern '{first_phrase[:50]}...' appears {occurrences} times.")
+                            logger.warning(f"First 500 chars of OCR output: {extracted_text[:500]}")
+                            # Still return it, but log the warning - the LLM parser might be able to handle it
+                
+                logger.info(f"OCR extracted text length: {len(extracted_text)} characters")
+                logger.debug(f"OCR extracted text (first 500 chars): {extracted_text[:500]}")
+                
                 return extracted_text
                 
             except Exception as e:
