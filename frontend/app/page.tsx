@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { invoiceApi, Invoice } from '@/lib/api';
 import InvoiceTable from '@/components/InvoiceTable';
 
@@ -52,6 +53,11 @@ export default function Home() {
     <div className="container">
       <div className="header">
         <h1>Accounts Payable - Invoice Queue</h1>
+        <div style={{ display: 'flex', gap: '16px' }}>
+          <Link href="/purchase-orders" className="button" style={{ textDecoration: 'none' }}>
+            Purchase Orders
+          </Link>
+        </div>
       </div>
 
       <div style={{ marginBottom: '20px', display: 'flex', gap: '16px', alignItems: 'center' }}>

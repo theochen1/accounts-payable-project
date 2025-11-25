@@ -16,6 +16,14 @@ class POLineResponse(BaseModel):
         from_attributes = True
 
 
+class POLineCreate(BaseModel):
+    line_no: int
+    sku: Optional[str] = None
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+
+
 class POResponse(BaseModel):
     id: int
     po_number: str
@@ -31,4 +39,27 @@ class POResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class POListResponse(BaseModel):
+    id: int
+    po_number: str
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    total_amount: Decimal
+    currency: str
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class POCreate(BaseModel):
+    po_number: str
+    vendor_id: int
+    currency: str = "USD"
+    status: str = "open"
+    requester_email: Optional[str] = None
+    po_lines: List[POLineCreate]
 

@@ -161,9 +161,51 @@ export const invoiceApi = {
   },
 };
 
+export interface POCreate {
+  po_number: string;
+  vendor_id: number;
+  currency?: string;
+  status?: string;
+  requester_email?: string;
+  po_lines: POLineCreate[];
+}
+
+export interface POLineCreate {
+  line_no: number;
+  sku?: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+}
+
+export interface POList {
+  id: number;
+  po_number: string;
+  vendor_id: number;
+  vendor_name?: string;
+  total_amount: number;
+  currency: string;
+  status: string;
+  created_at: string;
+}
+
 export const poApi = {
+  list: async (params?: { vendor_id?: number; status?: string; skip?: number; limit?: number }): Promise<POList[]> => {
+    const response = await api.get('/api/purchase-orders', { params });
+    return response.data;
+  },
+
   get: async (poNumber: string): Promise<PurchaseOrder> => {
     const response = await api.get(`/api/purchase-orders/${poNumber}`);
+    return response.data;
+  },
+
+  create: async (po: POCreate): Promise<PurchaseOrder> => {
+    const response = await api.post('/api/purchase-orders', po, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
     return response.data;
   },
 };
