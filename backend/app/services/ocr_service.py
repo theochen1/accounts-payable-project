@@ -55,6 +55,10 @@ class OCRService:
             logger.warning("CLARIFAI_PAT not set. OCR extraction will not function.")
             self.ocr_client = None
         else:
+            # Log API key format for debugging (first few chars only)
+            logger.info(f"Initializing Clarifai OCR client with API key prefix: {self.ocr_api_key[:10]}...")
+            logger.info(f"Clarifai base URL: {self.ocr_base_url}")
+            logger.info(f"Clarifai model URL: {self.ocr_model_url}")
             self.ocr_client = AsyncOpenAI(
                 base_url=self.ocr_base_url,
                 api_key=self.ocr_api_key,
@@ -179,24 +183,10 @@ class OCRService:
                 logger.info(f"Using model URL: {self.ocr_model_url}")
                 logger.info(f"Messages: {len(messages)} message(s)")
                 
-                # For Clarifai's OpenAI-compatible API, the model should be just the model ID
-                # Extract model ID from URL if it's a full URL
-                model_id = self.ocr_model_url
-                if model_id.startswith("https://"):
-                    # Extract model ID from URL: https://clarifai.com/user/app/model -> user/app/model
-                    # Or: https://clarifai.com/deepseek-ai/deepseek-ocr/models/DeepSeek-OCR -> deepseek-ai/deepseek-ocr/DeepSeek-OCR
-                    try:
-                        # Remove https://clarifai.com/ prefix
-                        model_id = model_id.replace("https://clarifai.com/", "")
-                        # Replace /models/ with /
-                        model_id = model_id.replace("/models/", "/")
-                        logger.info(f"Extracted model ID from URL: {model_id}")
-                    except Exception as e:
-                        logger.warning(f"Could not extract model ID from URL, using as-is: {e}")
-                        model_id = self.ocr_model_url
-                
+                # Use the model URL as-is since it works locally
+                # Clarifai's OpenAI-compatible API accepts the full model URL
                 response = await self.ocr_client.chat.completions.create(
-                    model=model_id,
+                    model=self.ocr_model_url,
                     messages=messages,
                     temperature=0.0,  # Deterministic OCR output
                     timeout=self.timeout
@@ -232,8 +222,8 @@ class OCRService:
                 if hasattr(response, 'object'):
                     logger.info(f"OCR API response.object: {response.object}")
                 
-                # Log the model ID being used
-                logger.info(f"OCR model ID used: {model_id}")
+                # Log the model URL being used
+                logger.info(f"OCR model URL used: {self.ocr_model_url}")
                 
                 # Check if there's an error in the response
                 if hasattr(response, 'error'):
