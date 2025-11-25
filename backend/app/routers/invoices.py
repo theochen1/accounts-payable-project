@@ -191,12 +191,42 @@ async def upload_invoice(
     # Extract vendor (try to find or create)
     vendor_id = None
     if ocr_data.get("vendor_name"):
-        vendor = db.query(Vendor).filter(Vendor.name.ilike(f"%{ocr_data['vendor_name']}%")).first()
+        vendor_name = ocr_data['vendor_name'].strip()
+        logger.info(f"Looking up vendor: '{vendor_name}'")
+        
+        # Try multiple matching strategies
+        # 1. Exact match (case-insensitive)
+        vendor = db.query(Vendor).filter(Vendor.name.ilike(vendor_name)).first()
+        
+        # 2. Partial match (contains)
         if not vendor:
-            # Create new vendor (or skip for MVP)
-            pass  # For MVP, we'll leave vendor_id as None if not found
-        else:
+            vendor = db.query(Vendor).filter(Vendor.name.ilike(f"%{vendor_name}%")).first()
+        
+        # 3. Reverse partial match (vendor name contains database name)
+        if not vendor:
+            # Try to find vendors where the database name is contained in the extracted name
+            all_vendors = db.query(Vendor).all()
+            for v in all_vendors:
+                if v.name.lower() in vendor_name.lower() or vendor_name.lower() in v.name.lower():
+                    vendor = v
+                    logger.info(f"Found vendor using reverse match: '{v.name}' matches '{vendor_name}'")
+                    break
+        
+        if vendor:
             vendor_id = vendor.id
+            logger.info(f"Found vendor: {vendor.name} (ID: {vendor_id})")
+        else:
+            # Auto-create vendor if not found (like Ramp - creates vendors automatically)
+            logger.info(f"Vendor '{vendor_name}' not found. Creating new vendor...")
+            from app.models.vendor import Vendor
+            new_vendor = Vendor(
+                name=vendor_name,
+                default_currency=ocr_data.get("currency", "USD")
+            )
+            db.add(new_vendor)
+            db.flush()  # Get the ID without committing
+            vendor_id = new_vendor.id
+            logger.info(f"Created new vendor: {new_vendor.name} (ID: {vendor_id})")
     
     # Create invoice record
     from decimal import Decimal
