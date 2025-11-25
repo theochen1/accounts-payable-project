@@ -57,6 +57,9 @@ dist/
 # Local storage
 local_storage/
 
+# Test data
+data/
+
 # OS
 .DS_Store
 Thumbs.db

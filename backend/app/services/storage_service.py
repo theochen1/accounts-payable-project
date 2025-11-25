@@ -22,13 +22,13 @@ class StorageService:
                 'aws_access_key_id': settings.storage_access_key_id,
                 'aws_secret_access_key': settings.storage_secret_access_key,
             }
-            if settings.storage_endpoint_url:
-                s3_config['endpoint_url'] = settings.storage_endpoint_url
-            if settings.storage_region:
-                s3_config['region_name'] = settings.storage_region
-            
+        if settings.storage_endpoint_url:
+            s3_config['endpoint_url'] = settings.storage_endpoint_url
+        if settings.storage_region:
+            s3_config['region_name'] = settings.storage_region
+        
             try:
-                self.s3_client = boto3.client('s3', **s3_config)
+            self.s3_client = boto3.client('s3', **s3_config)
                 logger.info("S3 storage initialized successfully")
             except Exception as e:
                 logger.warning(f"Failed to initialize S3 client, falling back to local storage: {str(e)}")
@@ -37,7 +37,7 @@ class StorageService:
             # Fallback to local filesystem if no S3 credentials
             logger.info("No S3 credentials found, using local filesystem storage")
             self.s3_client = None
-        
+    
         # Initialize local storage directory
         self.local_storage_dir = os.path.abspath("local_storage/invoices")
         try:
@@ -96,10 +96,10 @@ class StorageService:
             try:
                 # Use absolute path for better reliability
                 local_path = os.path.join(self.local_storage_dir, f"{timestamp}_{filename}")
-                with open(local_path, 'wb') as f:
-                    f.write(file_content)
+            with open(local_path, 'wb') as f:
+                f.write(file_content)
                 logger.info(f"File saved to local storage: {local_path}")
-                return local_path
+            return local_path
             except Exception as e:
                 logger.error(f"Failed to save file to local storage: {str(e)}")
                 raise Exception(f"Failed to save file: {str(e)}")
@@ -162,8 +162,8 @@ class StorageService:
                 raise FileNotFoundError(f"File not found: {storage_path}")
             
             try:
-                with open(storage_path, 'rb') as f:
-                    return f.read()
+            with open(storage_path, 'rb') as f:
+                return f.read()
             except Exception as e:
                 logger.error(f"Failed to read file from local storage: {str(e)}")
                 raise Exception(f"Failed to read file: {str(e)}")
