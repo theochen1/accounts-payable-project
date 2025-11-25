@@ -12,7 +12,6 @@ from pdf2image import convert_from_bytes
 from PIL import Image
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, ContentType
 
 logger = logging.getLogger(__name__)
 
@@ -151,10 +150,11 @@ class OCRService:
         if not self.azure_client:
             raise Exception("Azure Document Intelligence credentials not configured. Set AZURE_DOC_INTELLIGENCE_ENDPOINT and AZURE_DOC_INTELLIGENCE_KEY.")
         
-        # Determine content type
+        # Determine content type string
         file_ext = filename.lower().split('.')[-1] if '.' in filename else ''
         is_pdf = file_ext == 'pdf'
-        content_type = ContentType.APPLICATION_PDF if is_pdf else ContentType.IMAGE_PNG
+        # Azure Document Intelligence accepts content_type as a string
+        content_type_str = "application/pdf" if is_pdf else "image/png"
         
         # Azure Document Intelligence can handle PDFs directly, no conversion needed
         logger.info(f"Processing {file_ext.upper()} file with Azure Document Intelligence (model: {self.azure_model})")
@@ -168,10 +168,11 @@ class OCRService:
                 
                 # Analyze document with Azure Document Intelligence
                 # The prebuilt-invoice model extracts structured data, but we'll get the raw text too
+                # Azure DI can auto-detect content type, but we can specify it explicitly
                 poller = await self.azure_client.begin_analyze_document(
                     model_id=self.azure_model,  # "prebuilt-invoice"
                     analyze_request=file_content,
-                    content_type=content_type
+                    content_type=content_type_str
                 )
                 
                 # Wait for the result
