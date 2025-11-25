@@ -25,7 +25,7 @@ logger.info("="*60)
 logger.info("Starting Accounts Payable Platform API")
 logger.info("="*60)
 logger.info(f"OpenAI API Key configured: {bool(settings.openai_api_key)}")
-logger.info(f"Clarifai PAT configured: {bool(settings.clarifai_pat)}")
+logger.info(f"Azure Document Intelligence configured: {bool(settings.azure_doc_intelligence_endpoint and settings.azure_doc_intelligence_key)}")
 logger.info(f"OpenAI Model: {settings.openai_model}")
 logger.info("="*60)
 

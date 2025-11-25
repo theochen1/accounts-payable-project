@@ -10,6 +10,9 @@ import logging
 from io import BytesIO
 from pdf2image import convert_from_bytes
 from PIL import Image
+from azure.core.credentials import AzureKeyCredential
+from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
+from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, ContentType
 
 logger = logging.getLogger(__name__)
 
@@ -17,15 +20,15 @@ logger = logging.getLogger(__name__)
 class OCRService:
     """
     Two-step OCR service:
-    1. Extract text using DeepSeek-OCR (via Clarifai)
+    1. Extract text using Azure Document Intelligence (prebuilt-invoice model)
     2. Parse text into structured JSON using OpenAI or DeepSeek chat API
     """
     
     def __init__(self):
-        # Step 1: OCR client (Clarifai)
-        self.ocr_base_url = settings.clarifai_base_url
-        self.ocr_api_key = settings.clarifai_pat or os.environ.get("CLARIFAI_PAT")
-        self.ocr_model_url = settings.clarifai_model_url
+        # Step 1: Azure Document Intelligence client
+        self.azure_endpoint = settings.azure_doc_intelligence_endpoint or os.environ.get("AZURE_DOC_INTELLIGENCE_ENDPOINT")
+        self.azure_key = settings.azure_doc_intelligence_key or os.environ.get("AZURE_DOC_INTELLIGENCE_KEY")
+        self.azure_model = settings.azure_doc_intelligence_model
         
         # Step 2: LLM parsing client (OpenAI or DeepSeek)
         self.use_deepseek = settings.use_deepseek_for_parsing
@@ -53,19 +56,18 @@ class OCRService:
         self.timeout = settings.ocr_timeout_seconds
         self.max_retries = settings.ocr_max_retries
         
-        # Initialize OCR client (Clarifai)
-        if not self.ocr_api_key:
-            logger.warning("CLARIFAI_PAT not set. OCR extraction will not function.")
-            self.ocr_client = None
+        # Initialize Azure Document Intelligence client
+        if not self.azure_endpoint or not self.azure_key:
+            logger.warning("Azure Document Intelligence credentials not set. OCR extraction will not function.")
+            logger.warning("Set AZURE_DOC_INTELLIGENCE_ENDPOINT and AZURE_DOC_INTELLIGENCE_KEY environment variables.")
+            self.azure_client = None
         else:
-            # Log API key format for debugging (first few chars only)
-            logger.info(f"Initializing Clarifai OCR client with API key prefix: {self.ocr_api_key[:10]}...")
-            logger.info(f"Clarifai base URL: {self.ocr_base_url}")
-            logger.info(f"Clarifai model URL: {self.ocr_model_url}")
-            self.ocr_client = AsyncOpenAI(
-                base_url=self.ocr_base_url,
-                api_key=self.ocr_api_key,
-                timeout=self.timeout
+            logger.info(f"Initializing Azure Document Intelligence client")
+            logger.info(f"Azure endpoint: {self.azure_endpoint}")
+            logger.info(f"Azure model: {self.azure_model}")
+            self.azure_client = DocumentIntelligenceClient(
+                endpoint=self.azure_endpoint,
+                credential=AzureKeyCredential(self.azure_key)
             )
         
         # Initialize LLM parsing client (OpenAI or DeepSeek)
@@ -122,7 +124,7 @@ class OCRService:
             Structured OCR data as dictionary
         """
         # Step 1: Extract text using OCR
-        logger.info("Step 1: Extracting text using DeepSeek-OCR...")
+        logger.info("Step 1: Extracting text using Azure Document Intelligence...")
         raw_text = await self._extract_text_ocr(file_content, filename)
         
         if not raw_text or not raw_text.strip():
@@ -141,180 +143,75 @@ class OCRService:
     
     async def _extract_text_ocr(self, file_content: bytes, filename: str) -> str:
         """
-        Step 1: Extract raw text from image/PDF using DeepSeek-OCR
+        Step 1: Extract raw text from image/PDF using Azure Document Intelligence
         
         Returns:
             Raw extracted text as string
         """
-        if not self.ocr_client:
-            raise Exception("Clarifai PAT (CLARIFAI_PAT) is not configured")
+        if not self.azure_client:
+            raise Exception("Azure Document Intelligence credentials not configured. Set AZURE_DOC_INTELLIGENCE_ENDPOINT and AZURE_DOC_INTELLIGENCE_KEY.")
         
-        # Check if file is PDF
+        # Determine content type
         file_ext = filename.lower().split('.')[-1] if '.' in filename else ''
         is_pdf = file_ext == 'pdf'
+        content_type = ContentType.APPLICATION_PDF if is_pdf else ContentType.IMAGE_PNG
         
-        # If PDF, convert to image first (Clarifai OCR can't process PDFs directly)
-        if is_pdf:
-            logger.info("Processing PDF file. Converting PDF to image...")
-            try:
-                # Convert PDF to images (first page only for now)
-                images = convert_from_bytes(file_content, first_page=1, last_page=1, dpi=300)
-                if not images:
-                    raise Exception("PDF conversion produced no images")
-                
-                # Convert first page to bytes
-                img_buffer = BytesIO()
-                images[0].save(img_buffer, format='PNG')
-                file_content = img_buffer.getvalue()
-                filename = filename.replace('.pdf', '.png')  # Update extension for content type
-                logger.info(f"PDF converted to image. Image size: {len(file_content)} bytes")
-            except Exception as e:
-                logger.error(f"Failed to convert PDF to image: {str(e)}")
-                raise Exception(f"PDF to image conversion failed: {str(e)}")
-        
-        # Create the image data URL
-        image_data_url = self._get_data_url(file_content, filename)
-        
-        # Improved OCR prompt with clear instructions
-        ocr_prompt = """You are an OCR (Optical Character Recognition) system. Your task is to extract ALL text from the provided document image.
-
-IMPORTANT INSTRUCTIONS:
-1. Read the text from left to right, top to bottom
-2. Extract ALL visible text including:
-   - Headers and titles
-   - Invoice numbers, dates, and reference numbers
-   - Vendor and customer information
-   - Line items, quantities, prices
-   - Totals and amounts
-   - Any other text visible in the document
-3. Preserve the structure and formatting (use line breaks where appropriate)
-4. Do NOT repeat text - each piece of text should appear only once
-5. Do NOT make up or hallucinate text - only extract what you can actually see
-6. Return ONLY the extracted text, nothing else
-
-Return the complete extracted text from the document:"""
-        
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": ocr_prompt
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image_data_url
-                        }
-                    }
-                ]
-            }
-        ]
-        
-        logger.info(f"OCR prompt length: {len(ocr_prompt)} characters")
-        logger.debug(f"Image data URL length: {len(image_data_url)} characters (first 100: {image_data_url[:100]}...)")
+        # Azure Document Intelligence can handle PDFs directly, no conversion needed
+        logger.info(f"Processing {file_ext.upper()} file with Azure Document Intelligence (model: {self.azure_model})")
+        logger.info(f"File size: {len(file_content)} bytes")
         
         # Retry logic for OCR
         last_exception = None
         for attempt in range(self.max_retries):
             try:
                 logger.info(f"OCR extraction attempt {attempt + 1}/{self.max_retries}")
-                logger.info(f"Using model URL: {self.ocr_model_url}")
-                logger.info(f"Messages: {len(messages)} message(s)")
                 
-                # Use the model URL as-is since it works locally
-                # Clarifai's OpenAI-compatible API accepts the full model URL
-                response = await self.ocr_client.chat.completions.create(
-                    model=self.ocr_model_url,
-                    messages=messages,
-                    temperature=0.0,  # Deterministic OCR output
-                    timeout=self.timeout
+                # Analyze document with Azure Document Intelligence
+                # The prebuilt-invoice model extracts structured data, but we'll get the raw text too
+                poller = await self.azure_client.begin_analyze_document(
+                    model_id=self.azure_model,  # "prebuilt-invoice"
+                    analyze_request=file_content,
+                    content_type=content_type
                 )
                 
-                logger.debug(f"OCR API call completed. Response received.")
+                # Wait for the result
+                result = await poller.result()
                 
-                # Log response structure for debugging (always log, not just on error)
-                logger.info(f"OCR API response type: {type(response)}")
-                logger.info(f"OCR API response has 'choices' attribute: {hasattr(response, 'choices')}")
+                logger.info(f"Azure Document Intelligence analysis completed")
                 
-                if hasattr(response, 'choices'):
-                    logger.info(f"OCR API response.choices type: {type(response.choices)}")
-                    logger.info(f"OCR API response.choices value: {response.choices}")
-                    logger.info(f"OCR API response.choices length: {len(response.choices) if response.choices else 0}")
-                    if response.choices and len(response.choices) > 0:
-                        logger.info(f"OCR API response.choices[0]: {response.choices[0]}")
-                        if hasattr(response.choices[0], 'message'):
-                            logger.info(f"OCR API response.choices[0].message: {response.choices[0].message}")
-                else:
-                    # Log detailed response info when choices is missing
-                    logger.error(f"OCR API response has no 'choices' attribute")
-                    logger.error(f"Response type: {type(response)}")
-                    if hasattr(response, '__dict__'):
-                        logger.error(f"Response attributes: {list(response.__dict__.keys())}")
-                        logger.error(f"Response dict: {response.__dict__}")
+                # Extract text from the result
+                # Azure DI provides structured fields AND raw content
+                text_parts = []
                 
-                # Also log other response attributes that might be useful
-                if hasattr(response, 'id'):
-                    logger.info(f"OCR API response.id: {response.id}")
-                if hasattr(response, 'model'):
-                    logger.info(f"OCR API response.model: {response.model}")
-                if hasattr(response, 'object'):
-                    logger.info(f"OCR API response.object: {response.object}")
+                # Get the main content (all text from the document)
+                if hasattr(result, 'content') and result.content:
+                    text_parts.append(result.content)
+                    logger.debug(f"Extracted content from result.content: {len(result.content)} characters")
                 
-                # Log the model URL being used
-                logger.info(f"OCR model URL used: {self.ocr_model_url}")
+                # Also extract from pages if available (more detailed)
+                if hasattr(result, 'pages') and result.pages:
+                    for page_idx, page in enumerate(result.pages):
+                        if hasattr(page, 'lines') and page.lines:
+                            for line in page.lines:
+                                if hasattr(line, 'content') and line.content:
+                                    text_parts.append(line.content)
+                    logger.debug(f"Extracted text from {len(result.pages)} pages")
                 
-                # Check if there's an error in the response
-                if hasattr(response, 'error'):
-                    logger.error(f"OCR API response has error: {response.error}")
-                if hasattr(response, 'usage'):
-                    logger.info(f"OCR API response usage: {response.usage}")
+                # Combine all text parts
+                extracted_text = "\n".join(text_parts)
                 
-                # Log all response attributes to see what we have
-                logger.info(f"OCR API response all attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
-                
-                # Try to serialize response to see its structure
-                try:
-                    import json
-                    # Try to convert response to dict
-                    if hasattr(response, 'model_dump'):
-                        response_dict = response.model_dump()
-                        logger.info(f"OCR API response as dict: {json.dumps(response_dict, indent=2, default=str)[:1000]}")
-                    elif hasattr(response, 'dict'):
-                        response_dict = response.dict()
-                        logger.info(f"OCR API response as dict: {json.dumps(response_dict, indent=2, default=str)[:1000]}")
-                except Exception as e:
-                    logger.debug(f"Could not serialize response: {e}")
-                
-                # Extract text from response
-                if not hasattr(response, 'choices') or not response.choices or len(response.choices) == 0:
-                    error_msg = "OCR API response has no choices"
-                    logger.error(f"{error_msg}. This usually means the API returned an unexpected response structure.")
-                    logger.error(f"Full response details logged above. Check response structure.")
-                    raise Exception(error_msg)
-                
-                if not response.choices[0].message:
-                    raise Exception("OCR API response choice has no message")
-                
-                extracted_text = response.choices[0].message.content
-                
-                if extracted_text is None:
-                    raise Exception("OCR API response message content is None")
+                if not extracted_text or not extracted_text.strip():
+                    raise Exception("Azure Document Intelligence returned no text")
                 
                 # Validate extracted text - check for repetitive/garbled output
-                # If the same pattern repeats more than 10 times, it's likely garbled
                 if len(extracted_text) > 100:
-                    # Check for repetitive patterns (same substring repeating)
                     words = extracted_text.split()
                     if len(words) > 20:
-                        # Check if first few words repeat excessively
                         first_phrase = ' '.join(words[:5])
                         occurrences = extracted_text.count(first_phrase)
                         if occurrences > 10:
                             logger.warning(f"OCR output appears to be repetitive/garbled. Pattern '{first_phrase[:50]}...' appears {occurrences} times.")
                             logger.warning(f"First 500 chars of OCR output: {extracted_text[:500]}")
-                            # Still return it, but log the warning - the LLM parser might be able to handle it
                 
                 logger.info(f"OCR extracted text length: {len(extracted_text)} characters")
                 logger.debug(f"OCR extracted text (first 500 chars): {extracted_text[:500]}")
@@ -332,51 +229,24 @@ Return the complete extracted text from the document:"""
                     "error_repr": repr(e)
                 }
                 
-                # Try to extract full error object and headers from OpenAI SDK exceptions
-                if hasattr(e, 'response'):
-                    # OpenAI SDK error with response object
-                    error_details["has_response"] = True
-                    if hasattr(e.response, 'headers'):
-                        headers = dict(e.response.headers)
-                        error_details["response_headers"] = headers
-                        # Log rate limit headers specifically
-                        rate_limit_headers = {k: v for k, v in headers.items() if 'ratelimit' in k.lower()}
-                        if rate_limit_headers:
-                            error_details["rate_limit_headers"] = rate_limit_headers
-                    
-                    if hasattr(e.response, 'status_code'):
-                        error_details["status_code"] = e.response.status_code
-                    
-                    if hasattr(e.response, 'json'):
-                        try:
-                            error_body = e.response.json()
-                            error_details["response_body"] = error_body
-                        except:
-                            if hasattr(e.response, 'text'):
-                                error_details["response_text"] = e.response.text
-                
-                # Check for OpenAI APIError attributes
-                if hasattr(e, 'body'):
-                    error_details["error_body"] = e.body
-                
-                if hasattr(e, 'code'):
-                    error_details["error_code"] = e.code
-                
-                if hasattr(e, 'param'):
-                    error_details["error_param"] = e.param
-                
-                if hasattr(e, 'type'):
-                    error_details["error_type_field"] = e.type
+                # Check for Azure-specific error attributes
+                if hasattr(e, 'status_code'):
+                    error_details["status_code"] = e.status_code
+                if hasattr(e, 'message'):
+                    error_details["azure_message"] = e.message
+                if hasattr(e, 'error'):
+                    error_details["azure_error"] = e.error
                 
                 # Check if it's a rate limit error (429 or timeout)
                 is_rate_limit = (
                     "429" in error_str or 
                     "rate_limit" in error_str.lower() or 
+                    "throttl" in error_str.lower() or
                     error_details.get('status_code') == 429
                 )
                 is_timeout = (
                     "timeout" in error_str.lower() or
-                    "APITimeoutError" in error_str
+                    "timed out" in error_str.lower()
                 )
                 
                 # Log full error details

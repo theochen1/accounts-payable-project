@@ -7,10 +7,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://user:password@localhost/ap_platform"
     
     # OCR Configuration (Two-step process: OCR extraction + LLM parsing)
-    # Step 1: OCR extraction using Clarifai's DeepSeek-OCR
-    clarifai_base_url: str = "https://api.clarifai.com/v2/ext/openai/v1"
-    clarifai_pat: Optional[str] = None  # Clarifai Personal Access Token
-    clarifai_model_url: str = "https://clarifai.com/deepseek-ai/deepseek-ocr/models/DeepSeek-OCR"
+    # Step 1: OCR extraction using Azure Document Intelligence
+    azure_doc_intelligence_endpoint: Optional[str] = None  # e.g., "https://your-resource.cognitiveservices.azure.com/"
+    azure_doc_intelligence_key: Optional[str] = None  # Azure API key
+    azure_doc_intelligence_model: str = "prebuilt-invoice"  # Prebuilt invoice model
     
     # Step 2: LLM parsing (OpenAI or DeepSeek chat API)
     openai_api_key: Optional[str] = None  # OpenAI API key for text parsing
