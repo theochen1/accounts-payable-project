@@ -218,7 +218,6 @@ async def upload_invoice(
         else:
             # Auto-create vendor if not found (like Ramp - creates vendors automatically)
             logger.info(f"Vendor '{vendor_name}' not found. Creating new vendor...")
-            from app.models.vendor import Vendor
             new_vendor = Vendor(
                 name=vendor_name,
                 default_currency=ocr_data.get("currency", "USD")
