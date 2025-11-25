@@ -21,6 +21,18 @@ export default function InvoiceTable({ invoices, onRowClick }: InvoiceTableProps
   };
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    
+    // For date-only strings (YYYY-MM-DD), parse without timezone conversion
+    // to avoid off-by-one day errors
+    if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      // Parse YYYY-MM-DD directly without timezone conversion
+      const [year, month, day] = dateString.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      return date.toLocaleDateString();
+    }
+    
+    // For datetime strings, use standard parsing
     return new Date(dateString).toLocaleDateString();
   };
 
