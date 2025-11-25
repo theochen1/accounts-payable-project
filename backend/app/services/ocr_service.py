@@ -150,13 +150,10 @@ class OCRService:
         if not self.azure_client:
             raise Exception("Azure Document Intelligence credentials not configured. Set AZURE_DOC_INTELLIGENCE_ENDPOINT and AZURE_DOC_INTELLIGENCE_KEY.")
         
-        # Determine content type string
+        # Determine file type
         file_ext = filename.lower().split('.')[-1] if '.' in filename else ''
-        is_pdf = file_ext == 'pdf'
-        # Azure Document Intelligence accepts content_type as a string
-        content_type_str = "application/pdf" if is_pdf else "image/png"
         
-        # Azure Document Intelligence can handle PDFs directly, no conversion needed
+        # Azure Document Intelligence can handle PDFs and images directly, no conversion needed
         logger.info(f"Processing {file_ext.upper()} file with Azure Document Intelligence (model: {self.azure_model})")
         logger.info(f"File size: {len(file_content)} bytes")
         
@@ -168,11 +165,10 @@ class OCRService:
                 
                 # Analyze document with Azure Document Intelligence
                 # The prebuilt-invoice model extracts structured data, but we'll get the raw text too
-                # Azure DI can auto-detect content type, but we can specify it explicitly
+                # Azure DI auto-detects content type from the file
                 poller = await self.azure_client.begin_analyze_document(
                     model_id=self.azure_model,  # "prebuilt-invoice"
-                    analyze_request=file_content,
-                    content_type=content_type_str
+                    analyze_request=file_content
                 )
                 
                 # Wait for the result
