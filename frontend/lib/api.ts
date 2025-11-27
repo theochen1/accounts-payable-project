@@ -217,3 +217,135 @@ export const vendorApi = {
   },
 };
 
+// Document Queue Types
+export interface Document {
+  id: number;
+  filename: string;
+  storage_path: string;
+  document_type: 'invoice' | 'po' | null;
+  status: 'pending' | 'processing' | 'processed' | 'error';
+  error_message?: string;
+  ocr_data?: any;
+  processed_id?: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface DocumentOCRResult {
+  id: number;
+  status: string;
+  ocr_data?: any;
+  error_message?: string;
+}
+
+export interface InvoiceSaveData {
+  invoice_number: string;
+  vendor_name?: string;
+  vendor_id?: number;
+  po_number?: string;
+  invoice_date?: string;
+  total_amount?: number;
+  currency?: string;
+  line_items?: {
+    line_no: number;
+    sku?: string;
+    description: string;
+    quantity: number;
+    unit_price: number;
+  }[];
+}
+
+export interface POSaveData {
+  po_number: string;
+  vendor_name?: string;
+  vendor_id?: number;
+  order_date?: string;
+  total_amount: number;
+  currency?: string;
+  requester_email?: string;
+  po_lines?: {
+    line_no: number;
+    sku?: string;
+    description: string;
+    quantity: number;
+    unit_price: number;
+  }[];
+}
+
+export interface ProcessedDocument {
+  id: number;
+  document_type: 'invoice' | 'po';
+  reference_number: string;
+  vendor_name?: string;
+  total_amount?: number;
+  currency: string;
+  status: string;
+  date?: string;
+  source_document_id?: number;
+  created_at: string;
+}
+
+export const documentApi = {
+  list: async (status?: string): Promise<Document[]> => {
+    const params = status ? { status } : {};
+    const response = await api.get('/api/documents', { params });
+    return response.data;
+  },
+
+  get: async (id: number): Promise<Document> => {
+    const response = await api.get(`/api/documents/${id}`);
+    return response.data;
+  },
+
+  upload: async (file: File): Promise<Document> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/api/documents', formData, {
+      headers: {},
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    });
+    return response.data;
+  },
+
+  setType: async (id: number, documentType: 'invoice' | 'po'): Promise<Document> => {
+    const response = await api.patch(`/api/documents/${id}/type`, {
+      document_type: documentType,
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return response.data;
+  },
+
+  process: async (id: number): Promise<DocumentOCRResult> => {
+    const response = await api.post(`/api/documents/${id}/process`);
+    return response.data;
+  },
+
+  retry: async (id: number): Promise<DocumentOCRResult> => {
+    const response = await api.post(`/api/documents/${id}/retry`);
+    return response.data;
+  },
+
+  save: async (id: number, data: { invoice_data?: InvoiceSaveData; po_data?: POSaveData }): Promise<{ success: boolean; document_type: string; id: number; reference_number: string }> => {
+    const response = await api.post(`/api/documents/${id}/save`, data, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return response.data;
+  },
+
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/api/documents/${id}`);
+  },
+
+  listProcessed: async (documentType?: string): Promise<ProcessedDocument[]> => {
+    const params = documentType ? { document_type: documentType } : {};
+    const response = await api.get('/api/documents/processed/all', { params });
+    return response.data;
+  },
+};
+

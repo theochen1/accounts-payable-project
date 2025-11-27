@@ -175,6 +175,10 @@ class StorageService:
             except Exception as e:
                 logger.error(f"Failed to read file from local storage: {str(e)}")
                 raise Exception(f"Failed to read file: {str(e)}")
+    
+    def download_file(self, storage_path: str) -> bytes:
+        """Alias for download_pdf - works for any file type"""
+        return self.download_pdf(storage_path)
 
 
 storage_service = StorageService()

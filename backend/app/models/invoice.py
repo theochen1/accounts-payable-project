@@ -17,6 +17,7 @@ class Invoice(Base):
     pdf_storage_path = Column(String, nullable=True)
     ocr_json = Column(JSON, nullable=True)  # Store raw OCR output
     status = Column(String, default="new", index=True)  # new, matched, needs_review, exception, approved, rejected, routed
+    source_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)  # Link to source document
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -24,4 +25,5 @@ class Invoice(Base):
     vendor = relationship("Vendor", back_populates="invoices")
     invoice_lines = relationship("InvoiceLine", back_populates="invoice", cascade="all, delete-orphan")
     decisions = relationship("Decision", back_populates="invoice", cascade="all, delete-orphan")
+    source_document = relationship("Document", backref="invoices")
 
