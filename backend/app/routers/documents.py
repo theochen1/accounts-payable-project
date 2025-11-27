@@ -353,7 +353,7 @@ async def _save_po(document: Document, data, db: Session):
     # Create line items
     for item in data.po_lines:
         line = POLine(
-            purchase_order_id=po.id,
+            po_id=po.id,
             line_no=item.line_no,
             sku=item.sku,
             description=item.description,
