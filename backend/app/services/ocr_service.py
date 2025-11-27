@@ -246,6 +246,7 @@ class OCRService:
                     if 'Items' in fields and hasattr(fields['Items'], 'value'):
                         items = fields['Items'].value
                         if items:
+                            logger.info(f"Found {len(items)} line items in Azure DI response")
                             for idx, item in enumerate(items, start=1):
                                 if hasattr(item, 'value') and isinstance(item.value, dict):
                                     item_fields = item.value
@@ -257,18 +258,71 @@ class OCRService:
                                         "unit_price": None
                                     }
                                     
+                                    # Log raw Azure DI fields for debugging
+                                    logger.debug(f"Line item {idx} raw fields: {list(item_fields.keys()) if item_fields else 'None'}")
+                                    
                                     if 'Description' in item_fields and hasattr(item_fields['Description'], 'value'):
                                         line_item['description'] = str(item_fields['Description'].value)
                                     
                                     if 'Quantity' in item_fields and hasattr(item_fields['Quantity'], 'value'):
-                                        line_item['quantity'] = float(item_fields['Quantity'].value)
+                                        qty_value = item_fields['Quantity'].value
+                                        line_item['quantity'] = float(qty_value)
+                                        logger.debug(f"Line {idx} quantity from Azure DI: {qty_value} -> {line_item['quantity']}")
                                     
                                     if 'UnitPrice' in item_fields and hasattr(item_fields['UnitPrice'], 'value'):
                                         price_value = item_fields['UnitPrice'].value
                                         if hasattr(price_value, 'amount'):
                                             line_item['unit_price'] = float(price_value.amount)
+                                            logger.debug(f"Line {idx} unit_price from Azure DI (amount object): {price_value.amount}")
                                         else:
                                             line_item['unit_price'] = float(price_value) if price_value else None
+                                            logger.debug(f"Line {idx} unit_price from Azure DI (direct): {price_value} -> {line_item['unit_price']}")
+                                    
+                                    # Check for Amount field (total for this line) - Azure DI sometimes provides this
+                                    if 'Amount' in item_fields and hasattr(item_fields['Amount'], 'value'):
+                                        amount_value = item_fields['Amount'].value
+                                        if hasattr(amount_value, 'amount'):
+                                            line_amount = float(amount_value.amount)
+                                            logger.debug(f"Line {idx} Amount field from Azure DI: {line_amount}")
+                                            # If we have quantity but no unit_price, calculate it
+                                            if line_item['quantity'] and not line_item['unit_price']:
+                                                line_item['unit_price'] = line_amount / line_item['quantity']
+                                                logger.info(f"Calculated unit_price from Amount/Quantity: {line_amount} / {line_item['quantity']} = {line_item['unit_price']}")
+                                    
+                                    # Validation: Flag suspicious values and attempt correction
+                                    line_amount_from_azure = None
+                                    if 'Amount' in item_fields and hasattr(item_fields['Amount'], 'value'):
+                                        amount_value = item_fields['Amount'].value
+                                        if hasattr(amount_value, 'amount'):
+                                            line_amount_from_azure = float(amount_value.amount)
+                                    
+                                    # Check if calculated total matches Azure's Amount field (if available)
+                                    if line_item['quantity'] and line_item['unit_price']:
+                                        calculated_total = line_item['quantity'] * line_item['unit_price']
+                                        
+                                        # If Azure provided an Amount field, use it to validate/correct
+                                        if line_amount_from_azure:
+                                            # If calculated total is way off from Azure's Amount, Azure may have misread
+                                            if abs(calculated_total - line_amount_from_azure) > 0.01:
+                                                logger.warning(
+                                                    f"Line {idx} mismatch: Calculated ({calculated_total:.2f}) vs Azure Amount ({line_amount_from_azure:.2f}). "
+                                                    f"Azure may have misread quantity or unit_price."
+                                                )
+                                                # Try to correct: if quantity seems wrong, recalculate from Amount/UnitPrice
+                                                if line_item['quantity'] > 1000 and line_item['unit_price'] > 1000:
+                                                    # Both are suspiciously high - try recalculating quantity
+                                                    corrected_qty = line_amount_from_azure / line_item['unit_price']
+                                                    if 0.01 < corrected_qty < 10000:  # Reasonable range
+                                                        logger.info(f"Correcting line {idx} quantity: {line_item['quantity']} -> {corrected_qty:.2f} (from Amount/UnitPrice)")
+                                                        line_item['quantity'] = corrected_qty
+                                        
+                                        logger.info(f"Line {idx}: {line_item['description']} | Qty: {line_item['quantity']} | Unit: ${line_item['unit_price']:.2f} | Total: ${calculated_total:.2f}")
+                                    
+                                    # Flag suspicious values
+                                    if line_item['quantity'] and line_item['quantity'] > 100000:
+                                        logger.warning(f"Line {idx} has suspiciously high quantity: {line_item['quantity']}")
+                                    if line_item['unit_price'] and line_item['unit_price'] > 100000:
+                                        logger.warning(f"Line {idx} has suspiciously high unit_price: {line_item['unit_price']}")
                                     
                                     structured_data['line_items'].append(line_item)
             
