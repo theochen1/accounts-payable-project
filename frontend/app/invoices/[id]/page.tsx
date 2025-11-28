@@ -6,6 +6,7 @@ import { invoiceApi, InvoiceDetail } from '@/lib/api';
 import InvoiceDetailView from '@/components/InvoiceDetail';
 import MatchingComparison from '@/components/MatchingComparison';
 import ActionButtons from '@/components/ActionButtons';
+import AgentResolutionPanel from '@/components/AgentResolutionPanel';
 
 export default function InvoiceDetailPage() {
   const params = useParams();
@@ -82,6 +83,14 @@ export default function InvoiceDetailPage() {
       </div>
 
       <InvoiceDetailView invoice={invoice} />
+      
+      {/* Show agent panel if there are matching exceptions */}
+      {invoice.matching_result && invoice.matching_result.status !== 'matched' && (
+        <div style={{ marginBottom: '20px' }}>
+          <AgentResolutionPanel invoiceId={invoice.id} />
+        </div>
+      )}
+      
       {invoice.purchase_order && invoice.matching_result && (
         <MatchingComparison
           invoice={invoice}

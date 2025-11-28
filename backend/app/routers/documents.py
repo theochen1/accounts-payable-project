@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -192,6 +192,7 @@ async def retry_document(document_id: int, db: Session = Depends(get_db)):
 async def save_document(
     document_id: int,
     save_data: DocumentSaveRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """Save a processed document as an Invoice or PO"""
@@ -288,9 +289,20 @@ async def _save_invoice(document: Document, data, db: Session):
     db.commit()
     
     # Run matching
+    matching_result = None
     try:
         matching_result = match_invoice_to_po(db, invoice.id)
         logger.info(f"Invoice {invoice.id} matching completed")
+        
+        # If there are exceptions, trigger agent resolution
+        if matching_result and matching_result.status in ["exception", "needs_review"]:
+            # Import here to avoid circular dependency
+            from app.routers.agents import run_agent_workflow
+            import uuid
+            task_id = str(uuid.uuid4())
+            # Note: We need to create a new db session for background task
+            # For MVP, we'll trigger via API call instead
+            logger.info(f"Invoice {invoice.id} has exceptions. Agent resolution should be triggered via /api/agents/resolve")
     except Exception as e:
         logger.warning(f"Matching failed for invoice {invoice.id}: {str(e)}")
     
@@ -300,7 +312,8 @@ async def _save_invoice(document: Document, data, db: Session):
         "success": True,
         "document_type": "invoice",
         "id": invoice.id,
-        "reference_number": invoice.invoice_number
+        "reference_number": invoice.invoice_number,
+        "matching_status": matching_result.status if matching_result else None
     }
 
 

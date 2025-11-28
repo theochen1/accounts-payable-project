@@ -349,3 +349,36 @@ export const documentApi = {
   },
 };
 
+// Agent API Types
+export interface AgentTask {
+  task_id: string;
+  invoice_id: number;
+  task_type: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'escalated';
+  confidence_score?: number;
+  reasoning?: string;
+  resolution_action?: string;
+  applied: boolean;
+  created_at: string;
+  completed_at?: string;
+  error_message?: string;
+  output_data?: any;
+}
+
+export const agentApi = {
+  resolve: async (invoiceId: number): Promise<AgentTask> => {
+    const response = await api.post(`/api/agents/resolve?invoice_id=${invoiceId}`);
+    return response.data;
+  },
+
+  getTask: async (taskId: string): Promise<AgentTask> => {
+    const response = await api.get(`/api/agents/tasks/${taskId}`);
+    return response.data;
+  },
+
+  getInvoiceTasks: async (invoiceId: number): Promise<AgentTask[]> => {
+    const response = await api.get(`/api/agents/tasks/invoice/${invoiceId}`);
+    return response.data;
+  },
+};
+

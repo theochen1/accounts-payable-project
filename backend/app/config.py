@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     # Matching Configuration
     matching_tolerance: float = 0.01  # 1% tolerance for total amount matching
     
+    # Agent Configuration
+    agent_model: str = "gpt-4o-mini"  # Cost-effective for MVP
+    agent_temperature: float = 0.0
+    agent_max_retries: int = 3
+    
+    # Confidence thresholds
+    agent_auto_apply_threshold: float = 0.9  # High confidence → auto-apply
+    agent_suggest_threshold: float = 0.7     # Medium → suggest to user
+    agent_escalate_threshold: float = 0.5    # Low → escalate to human
+    
     # CORS Configuration
     cors_origins: str = "http://localhost:3000,http://localhost:3001,https://*.vercel.app"
     

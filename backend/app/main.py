@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
-from app.routers import invoices, purchase_orders, vendors, documents
+from app.routers import invoices, purchase_orders, vendors, documents, agents
 from app.database import engine, Base
 from app.config import settings
 from app.services.storage_service import storage_service
@@ -78,6 +78,7 @@ app.include_router(documents.router)  # Unified document queue
 app.include_router(invoices.router)
 app.include_router(purchase_orders.router)
 app.include_router(vendors.router)
+app.include_router(agents.router)  # AI agent exception resolution
 
 
 @app.get("/")
