@@ -483,7 +483,7 @@ class OCRService:
 
 Extract the following information and return ONLY valid JSON (no markdown, no code blocks, just the JSON object):
 {
-  "vendor_name": "Name of the vendor/company or null",
+  "vendor_name": "Name of the vendor/company who SENT the invoice or null",
   "invoice_number": "Invoice number or ID or null",
   "po_number": "Purchase order number if present or null",
   "invoice_date": "Date of the invoice in YYYY-MM-DD format or null",
@@ -500,11 +500,19 @@ Extract the following information and return ONLY valid JSON (no markdown, no co
   ]
 }
 
-IMPORTANT: 
-- Return ONLY the JSON object, nothing else
-- Use null for missing values (not empty strings)
-- For invoice_date: Extract the EXACT date from the document text. If you see "Date: 07/07/2022", convert it to YYYY-MM-DD format as "2022-07-07" (assuming MM/DD/YYYY format). Do NOT change the date value, only reformat it to YYYY-MM-DD.
-- Extract numeric values as numbers, not strings"""
+CRITICAL INSTRUCTIONS:
+
+1. VENDOR IDENTIFICATION (VERY IMPORTANT):
+   - The "vendor_name" is the company who ISSUED/SENT the invoice (the SELLER)
+   - Look for text near: "From:", "Remit To:", company letterhead, or the return address
+   - DO NOT use "Bill To" or "Ship To" addresses - those are the BUYER receiving the invoice
+   - The vendor is typically mentioned at the top of the document
+
+2. OTHER RULES:
+   - Return ONLY the JSON object, nothing else
+   - Use null for missing values (not empty strings)
+   - For invoice_date: Extract the EXACT date and convert to YYYY-MM-DD format
+   - Extract numeric values as numbers, not strings"""
         
         user_message = f"""Extract structured invoice data from the following text and return it as a JSON object:
 

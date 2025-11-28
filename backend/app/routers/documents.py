@@ -5,7 +5,7 @@ import os
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -157,6 +157,35 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
         logger.info(f"Starting OCR for document {document_id} ({document.filename}) using provider: {settings.ocr_provider}")
         ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         
+        # Verify and correct vendor identification using LLM
+        from app.services.vendor_matching_service import vendor_matching_service
+        if ocr_data.get('vendor_name'):
+            logger.info(f"Verifying vendor '{ocr_data.get('vendor_name')}' from document...")
+            ocr_data = await vendor_matching_service.verify_vendor_from_document(
+                ocr_data=ocr_data,
+                file_content=file_content,
+                filename=document.filename,
+                db=db
+            )
+            
+            # Also find best match from existing vendors
+            match_result = await vendor_matching_service.match_vendor(
+                extracted_vendor_name=ocr_data.get('vendor_name'),
+                db=db,
+                ocr_data=ocr_data
+            )
+            
+            # Add vendor match suggestions to OCR data
+            ocr_data['vendor_match'] = {
+                'matched_vendor_id': match_result.get('matched_vendor_id'),
+                'matched_vendor_name': match_result.get('matched_vendor_name'),
+                'confidence': match_result.get('confidence'),
+                'match_type': match_result.get('match_type'),
+                'suggested_name': match_result.get('suggested_name'),
+                'reasoning': match_result.get('reasoning')
+            }
+            logger.info(f"Vendor match result: {match_result.get('match_type')} - {match_result.get('matched_vendor_name') or match_result.get('suggested_name')}")
+        
         # Store OCR results
         document.ocr_data = ocr_data
         document.status = "processed"
@@ -243,24 +272,104 @@ async def save_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _find_or_create_vendor(
+    vendor_id: Optional[int], 
+    vendor_name: str, 
+    currency: str, 
+    db: Session,
+    ocr_data: Optional[Dict] = None,
+    file_content: Optional[bytes] = None,
+    filename: Optional[str] = None
+) -> Tuple[int, Dict]:
+    """
+    Intelligently find or create a vendor using LLM matching
+    
+    Args:
+        vendor_id: Explicit vendor ID if provided
+        vendor_name: Extracted vendor name from OCR
+        currency: Default currency for new vendors
+        db: Database session
+        ocr_data: Full OCR data for context-aware matching
+        file_content: Original file for vision-based verification
+        filename: Original filename
+        
+    Returns:
+        Tuple of (Vendor ID, match_result dict with details)
+    """
+    from app.services.vendor_matching_service import vendor_matching_service
+    
+    if vendor_id:
+        vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+        return vendor_id, {
+            'vendor_id': vendor_id,
+            'vendor_name': vendor.name if vendor else None,
+            'confidence': 1.0,
+            'match_type': 'explicit_id',
+            'reasoning': 'Vendor ID was explicitly provided'
+        }
+    
+    if not vendor_name:
+        raise HTTPException(status_code=400, detail="Vendor name is required")
+    
+    # Build OCR context for intelligent matching
+    ocr_context = ocr_data or {'vendor_name': vendor_name}
+    
+    # Use intelligent vendor matching
+    match_result = await vendor_matching_service.match_vendor(
+        ocr_data=ocr_context,
+        db=db,
+        file_content=file_content,
+        filename=filename
+    )
+    
+    logger.info(f"Vendor matching result: {match_result.get('match_type')} - {match_result.get('reasoning', '')[:100]}")
+    
+    if match_result.get('vendor_id'):
+        # Found existing vendor
+        logger.info(f"Matched vendor '{vendor_name}' to existing vendor: {match_result['vendor_name']} "
+                   f"(confidence: {match_result['confidence']:.0%}, type: {match_result['match_type']})")
+        return match_result['vendor_id'], match_result
+    
+    # No match - create new vendor with cleaned name
+    suggested_name = match_result.get('suggested_vendor') or match_result.get('vendor_name') or vendor_name
+    vendor = Vendor(name=suggested_name, default_currency=currency)
+    db.add(vendor)
+    db.flush()
+    logger.info(f"Created new vendor: {suggested_name}")
+    
+    match_result['vendor_id'] = vendor.id
+    match_result['vendor_name'] = suggested_name
+    match_result['match_type'] = 'created_new'
+    
+    return vendor.id, match_result
+
+
 async def _save_invoice(document: Document, data, db: Session):
     """Save document as an Invoice"""
     from app.schemas.document import InvoiceSaveData
+    from app.services.storage_service import storage_service
     
-    # Find or create vendor
-    vendor_id = data.vendor_id
-    if not vendor_id and data.vendor_name:
-        vendor = db.query(Vendor).filter(Vendor.name.ilike(data.vendor_name)).first()
-        if not vendor:
-            # Try partial match
-            vendor = db.query(Vendor).filter(Vendor.name.ilike(f"%{data.vendor_name}%")).first()
-        if not vendor:
-            # Create new vendor
-            vendor = Vendor(name=data.vendor_name, default_currency=data.currency)
-            db.add(vendor)
-            db.flush()
-            logger.info(f"Created new vendor: {data.vendor_name}")
-        vendor_id = vendor.id
+    # Get original file content for vision-based vendor verification if needed
+    file_content = None
+    try:
+        file_content = await storage_service.get_file(document.storage_path)
+    except Exception as e:
+        logger.warning(f"Could not retrieve file for vendor matching: {e}")
+    
+    # Find or create vendor using intelligent matching with full OCR context
+    vendor_id, vendor_match = await _find_or_create_vendor(
+        vendor_id=data.vendor_id,
+        vendor_name=data.vendor_name,
+        currency=data.currency,
+        db=db,
+        ocr_data=document.ocr_data,
+        file_content=file_content,
+        filename=document.filename
+    )
+    
+    # Log vendor matching details for debugging
+    if vendor_match.get('match_type') not in ['exact', 'explicit_id']:
+        logger.info(f"Vendor matching for invoice: {vendor_match}")
     
     # Parse date
     invoice_date = None
@@ -334,20 +443,15 @@ async def _save_invoice(document: Document, data, db: Session):
 async def _save_po(document: Document, data, db: Session):
     """Save document as a Purchase Order"""
     
-    # Find or create vendor
-    vendor_id = data.vendor_id
-    if not vendor_id and data.vendor_name:
-        vendor = db.query(Vendor).filter(Vendor.name.ilike(data.vendor_name)).first()
-        if not vendor:
-            vendor = db.query(Vendor).filter(Vendor.name.ilike(f"%{data.vendor_name}%")).first()
-        if not vendor:
-            vendor = Vendor(name=data.vendor_name, default_currency=data.currency)
-            db.add(vendor)
-            db.flush()
-            logger.info(f"Created new vendor: {data.vendor_name}")
-        vendor_id = vendor.id
-    
-    if not vendor_id:
+    # Find or create vendor using intelligent matching
+    try:
+        vendor_id = await _find_or_create_vendor(
+            vendor_id=data.vendor_id,
+            vendor_name=data.vendor_name,
+            currency=data.currency,
+            db=db
+        )
+    except HTTPException:
         raise HTTPException(status_code=400, detail="Vendor is required for purchase orders")
     
     # Parse date

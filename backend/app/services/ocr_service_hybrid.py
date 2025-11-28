@@ -178,7 +178,7 @@ class HybridOCRService:
             base64_image = base64.b64encode(file_content).decode('utf-8')
             mime_type = self._get_mime_type(filename)
             
-            # Structured extraction prompt
+            # Structured extraction prompt with clear vendor identification
             prompt = """Analyze this invoice or purchase order document and extract all data.
 
 Return a JSON object with EXACTLY this structure:
@@ -207,20 +207,29 @@ Return a JSON object with EXACTLY this structure:
 }
 
 CRITICAL INSTRUCTIONS:
-1. READ NUMBERS CAREFULLY:
+
+1. VENDOR IDENTIFICATION (VERY IMPORTANT):
+   - The VENDOR is the company who SENT/ISSUED this invoice (the SELLER)
+   - Look for: company logo, letterhead, "From:", "Remit To:", return address at TOP
+   - DO NOT confuse with "Bill To" or "Ship To" - those are the BUYER/RECIPIENT
+   - The vendor name is usually prominent at the top of the document
+   - Example: If letterhead says "Acme Corp" and Bill To says "Your Company Inc", 
+     the vendor_name should be "Acme Corp"
+
+2. READ NUMBERS CAREFULLY:
    - Don't confuse decimal separators (.) with thousands separators (,)
    - "1,000.00" = one thousand, "1.000,00" (European) = one thousand
    - A unit price of "45,000.00" for a single item is likely $45,000.00 not $45.00
 
-2. VERIFY LINE ITEM MATH:
+3. VERIFY LINE ITEM MATH:
    - quantity × unit_price should approximately equal the line total
    - If the math doesn't work, re-read the numbers
 
-3. CONFIDENCE SCORING:
+4. CONFIDENCE SCORING:
    - Set confidence score lower (< 0.7) if a value is unclear or you're uncertain
    - Set confidence score high (> 0.9) if clearly visible and readable
 
-4. DATES:
+5. DATES:
    - Convert all dates to YYYY-MM-DD format
    - "07/15/2024" becomes "2024-07-15"
 
@@ -315,10 +324,17 @@ Return a JSON object with this structure:
 }
 
 IMPORTANT INSTRUCTIONS:
-1. Read numbers very carefully - don't confuse decimal and thousands separators
-2. Verify: quantity × unit_price should approximately equal line total
-3. Convert dates to YYYY-MM-DD format
-4. Use null for missing values, not empty strings
+
+1. VENDOR IDENTIFICATION (CRITICAL):
+   - The VENDOR is the company who SENT/ISSUED this invoice (the SELLER)
+   - Look at: letterhead, logo, "From:", "Remit To:", return address at TOP of document
+   - DO NOT use "Bill To" or "Ship To" - those are the BUYER receiving the invoice
+   - The vendor is usually in the header/letterhead area
+
+2. Read numbers very carefully - don't confuse decimal and thousands separators
+3. Verify: quantity × unit_price should approximately equal line total
+4. Convert dates to YYYY-MM-DD format
+5. Use null for missing values, not empty strings
 
 Return ONLY the JSON object, no markdown, no explanation."""
 
