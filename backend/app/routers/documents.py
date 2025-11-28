@@ -28,8 +28,18 @@ from app.schemas.document import (
 from app.services.ocr_service import ocr_service
 from app.services.storage_service import storage_service
 from app.services.matching_service import match_invoice_to_po
+from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def get_ocr_service():
+    """Get the appropriate OCR service based on configuration"""
+    if settings.ocr_provider in ("hybrid", "gemini", "gpt4o"):
+        from app.services.ocr_service_hybrid import hybrid_ocr_service
+        return hybrid_ocr_service
+    # Default to Azure-based OCR service
+    return ocr_service
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -142,9 +152,10 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
         # Download file from storage
         file_content = storage_service.download_file(document.storage_path)
         
-        # Process with OCR
-        logger.info(f"Starting OCR for document {document_id} ({document.filename})")
-        ocr_data = await ocr_service.process_file(file_content, document.filename)
+        # Process with OCR (uses configured provider: azure, hybrid, gemini, or gpt4o)
+        active_ocr_service = get_ocr_service()
+        logger.info(f"Starting OCR for document {document_id} ({document.filename}) using provider: {settings.ocr_provider}")
+        ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         
         # Store OCR results
         document.ocr_data = ocr_data

@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     deepseek_api_key: Optional[str] = None
     deepseek_model: str = "deepseek-chat"
     
+    # Gemini Configuration (for hybrid OCR)
+    gemini_api_key: Optional[str] = None  # Google Gemini API key
+    gemini_model: str = "gemini-1.5-pro"  # Gemini model for OCR
+    
+    # Hybrid OCR Configuration
+    ocr_provider: str = "azure"  # "azure", "hybrid", "gemini", "gpt4o"
+    ocr_validation_threshold: float = 0.7  # Confidence threshold for validation
+    ocr_suspicious_qty_threshold: int = 10000  # Flag quantities above this
+    ocr_suspicious_price_threshold: int = 50000  # Flag unit prices above this
+    ocr_line_total_tolerance: float = 0.05  # 5% tolerance for line total validation
+    
     ocr_timeout_seconds: int = 60  # Timeout for OCR processing
     ocr_max_retries: int = 3
     
