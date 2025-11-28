@@ -17,11 +17,14 @@ import base64
 import json
 import logging
 import re
+from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 from decimal import Decimal, ROUND_HALF_UP
 from dataclasses import dataclass, field
 
 from openai import AsyncOpenAI
+from pdf2image import convert_from_bytes
+from PIL import Image
 
 from app.config import settings
 
@@ -219,8 +222,19 @@ class OCRAgentService:
         try:
             import google.generativeai as genai
             
-            base64_image = base64.b64encode(file_content).decode('utf-8')
-            mime_type = self._get_mime_type(filename)
+            # Convert PDF to image if needed (Gemini vision works better with images)
+            if self._is_pdf(filename):
+                try:
+                    image_content, mime_type = self._convert_pdf_to_image(file_content)
+                    base64_image = base64.b64encode(image_content).decode('utf-8')
+                    logger.info("Converted PDF to image for Gemini extraction")
+                except Exception as e:
+                    logger.warning(f"PDF conversion failed for Gemini: {e}, trying raw PDF")
+                    base64_image = base64.b64encode(file_content).decode('utf-8')
+                    mime_type = 'application/pdf'
+            else:
+                base64_image = base64.b64encode(file_content).decode('utf-8')
+                mime_type = self._get_mime_type(filename)
             
             # Column-aware extraction prompt
             prompt = """Analyze this invoice document VERY CAREFULLY.
@@ -296,8 +310,18 @@ Return ONLY the JSON, no markdown."""
             return None
         
         try:
-            base64_image = base64.b64encode(file_content).decode('utf-8')
-            mime_type = self._get_mime_type(filename)
+            # GPT-4o Vision ONLY supports images, NOT PDFs - must convert
+            if self._is_pdf(filename):
+                try:
+                    image_content, mime_type = self._convert_pdf_to_image(file_content)
+                    base64_image = base64.b64encode(image_content).decode('utf-8')
+                    logger.info("Converted PDF to image for GPT-4o extraction")
+                except Exception as e:
+                    logger.error(f"PDF conversion failed for GPT-4o: {e}")
+                    return None  # Can't process PDF without conversion
+            else:
+                base64_image = base64.b64encode(file_content).decode('utf-8')
+                mime_type = self._get_mime_type(filename)
             
             # Column-aware extraction prompt (slightly different wording for diversity)
             prompt = """You are an expert invoice data extractor. Analyze this document.
@@ -667,8 +691,17 @@ Return ONLY JSON, no code blocks or explanation."""
     ) -> Dict:
         """Use LLM reasoning to reconcile extraction results"""
         
-        base64_image = base64.b64encode(file_content).decode('utf-8')
-        mime_type = self._get_mime_type(filename)
+        # Convert PDF to image for GPT-4o vision
+        if self._is_pdf(filename):
+            try:
+                image_content, mime_type = self._convert_pdf_to_image(file_content)
+                base64_image = base64.b64encode(image_content).decode('utf-8')
+            except Exception as e:
+                logger.error(f"PDF conversion failed for reconciliation: {e}")
+                return self._voting_reconciliation(validated_results)
+        else:
+            base64_image = base64.b64encode(file_content).decode('utf-8')
+            mime_type = self._get_mime_type(filename)
         
         # Build comparison summary for the prompt
         comparison_text = self._format_comparison_for_prompt(comparison, validated_results)
@@ -847,8 +880,17 @@ Return ONLY JSON."""
         if not self.openai_client:
             return current_result
         
-        base64_image = base64.b64encode(file_content).decode('utf-8')
-        mime_type = self._get_mime_type(filename)
+        # Convert PDF to image for GPT-4o vision
+        if self._is_pdf(filename):
+            try:
+                image_content, mime_type = self._convert_pdf_to_image(file_content)
+                base64_image = base64.b64encode(image_content).decode('utf-8')
+            except Exception as e:
+                logger.error(f"PDF conversion failed for verification: {e}")
+                return current_result
+        else:
+            base64_image = base64.b64encode(file_content).decode('utf-8')
+            mime_type = self._get_mime_type(filename)
         
         # Focus verification on line items
         prompt = f"""VERIFICATION REQUEST: Please verify the line items in this invoice.
@@ -1006,6 +1048,37 @@ Return ONLY JSON."""
             'tiff': 'image/tiff',
             'tif': 'image/tiff',
         }.get(ext, 'application/octet-stream')
+    
+    def _is_pdf(self, filename: str) -> bool:
+        """Check if file is a PDF"""
+        return filename.lower().endswith('.pdf')
+    
+    def _convert_pdf_to_image(self, file_content: bytes) -> Tuple[bytes, str]:
+        """
+        Convert PDF to PNG image for vision APIs
+        
+        Returns:
+            Tuple of (image_bytes, mime_type)
+        """
+        try:
+            # Convert PDF to images (just first page for now)
+            images = convert_from_bytes(file_content, first_page=1, last_page=1, dpi=200)
+            
+            if not images:
+                raise ValueError("No pages found in PDF")
+            
+            # Convert first page to PNG
+            img = images[0]
+            buffer = BytesIO()
+            img.save(buffer, format='PNG')
+            buffer.seek(0)
+            
+            logger.info(f"Converted PDF to PNG image ({img.width}x{img.height})")
+            return buffer.getvalue(), 'image/png'
+            
+        except Exception as e:
+            logger.error(f"PDF to image conversion failed: {e}")
+            raise
     
     def _create_fallback_response(self, error_msg: str) -> Dict:
         """Create fallback response when extraction fails"""

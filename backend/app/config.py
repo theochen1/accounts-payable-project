@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # Gemini Configuration (for hybrid OCR)
     gemini_api_key: Optional[str] = None  # Google Gemini API key
-    gemini_model: str = "gemini-1.5-pro"  # Gemini model for OCR
+    gemini_model: str = "gemini-1.5-flash"  # Gemini model for OCR (use flash for availability)
     
     # Hybrid OCR Configuration
     # Options: "azure", "hybrid", "gemini", "gpt4o", "agent" (ensemble with reasoning)
