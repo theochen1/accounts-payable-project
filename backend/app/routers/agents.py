@@ -140,11 +140,11 @@ async def resolve_exception(
     db.refresh(agent_task)
     
     # Run agent workflow in background
+    # Note: We pass invoice_id and task_id, and create new db session in background task
     background_tasks.add_task(
         run_agent_workflow,
         task_id=task_id,
-        invoice_id=invoice_id,
-        db=db
+        invoice_id=invoice_id
     )
     
     return AgentTaskResponse(
@@ -157,10 +157,15 @@ async def resolve_exception(
     )
 
 
-async def run_agent_workflow(task_id: str, invoice_id: int, db: Session):
+async def run_agent_workflow(task_id: str, invoice_id: int):
     """
     Execute the agent workflow (runs in background).
+    Creates its own database session.
     """
+    # Create new database session for background task
+    from app.database import SessionLocal
+    db = SessionLocal()
+    
     try:
         # Update task status
         task = db.query(AgentTask).filter(AgentTask.id == uuid.UUID(task_id)).first()
@@ -236,11 +241,16 @@ async def run_agent_workflow(task_id: str, invoice_id: int, db: Session):
         
     except Exception as e:
         logger.error(f"Agent workflow failed for task {task_id}: {str(e)}", exc_info=True)
-        task = db.query(AgentTask).filter(AgentTask.id == uuid.UUID(task_id)).first()
-        if task:
-            task.status = "failed"
-            task.error_message = str(e)
-            db.commit()
+        try:
+            task = db.query(AgentTask).filter(AgentTask.id == uuid.UUID(task_id)).first()
+            if task:
+                task.status = "failed"
+                task.error_message = str(e)
+                db.commit()
+        except Exception as db_error:
+            logger.error(f"Failed to update task status: {db_error}")
+    finally:
+        db.close()
 
 
 def apply_resolution(state: AgentState, db: Session):

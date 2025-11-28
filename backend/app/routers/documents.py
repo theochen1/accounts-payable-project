@@ -35,7 +35,11 @@ logger = logging.getLogger(__name__)
 
 def get_ocr_service():
     """Get the appropriate OCR service based on configuration"""
-    if settings.ocr_provider in ("hybrid", "gemini", "gpt4o"):
+    if settings.ocr_provider == "agent":
+        # Ensemble OCR agent with reasoning - best accuracy
+        from app.services.ocr_agent_service import ocr_agent_service
+        return ocr_agent_service
+    elif settings.ocr_provider in ("hybrid", "gemini", "gpt4o"):
         from app.services.ocr_service_hybrid import hybrid_ocr_service
         return hybrid_ocr_service
     # Default to Azure-based OCR service

@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-1.5-pro"  # Gemini model for OCR
     
     # Hybrid OCR Configuration
-    ocr_provider: str = "azure"  # "azure", "hybrid", "gemini", "gpt4o"
+    # Options: "azure", "hybrid", "gemini", "gpt4o", "agent" (ensemble with reasoning)
+    ocr_provider: str = "agent"  # Default to ensemble agent for best accuracy
     ocr_validation_threshold: float = 0.7  # Confidence threshold for validation
     ocr_suspicious_qty_threshold: int = 10000  # Flag quantities above this
     ocr_suspicious_price_threshold: int = 50000  # Flag unit prices above this
