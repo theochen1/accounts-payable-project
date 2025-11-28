@@ -346,22 +346,41 @@ async def _save_po(document: Document, data, db: Session):
     
     # Check if PO number already exists
     existing_po = db.query(PurchaseOrder).filter(PurchaseOrder.po_number == data.po_number).first()
-    if existing_po:
-        raise HTTPException(status_code=400, detail=f"PO number {data.po_number} already exists")
     
-    # Create PO
-    po = PurchaseOrder(
-        po_number=data.po_number,
-        vendor_id=vendor_id,
-        total_amount=data.total_amount,
-        currency=data.currency,
-        status="open",
-        order_date=order_date,
-        requester_email=data.requester_email,
-        source_document_id=document.id
-    )
-    db.add(po)
-    db.flush()
+    if existing_po:
+        # If PO exists and was created from the same document, update it
+        if existing_po.source_document_id == document.id:
+            logger.info(f"PO {data.po_number} already exists from this document. Updating existing PO.")
+            po = existing_po
+            # Update PO fields
+            po.vendor_id = vendor_id
+            po.total_amount = data.total_amount
+            po.currency = data.currency
+            po.order_date = order_date
+            po.requester_email = data.requester_email
+            # Delete existing line items
+            db.query(POLine).filter(POLine.po_id == po.id).delete()
+            db.flush()
+        else:
+            # PO exists from a different document - this is an error
+            raise HTTPException(
+                status_code=400, 
+                detail=f"PO number {data.po_number} already exists (created from document {existing_po.source_document_id})"
+            )
+    else:
+        # Create new PO
+        po = PurchaseOrder(
+            po_number=data.po_number,
+            vendor_id=vendor_id,
+            total_amount=data.total_amount,
+            currency=data.currency,
+            status="open",
+            order_date=order_date,
+            requester_email=data.requester_email,
+            source_document_id=document.id
+        )
+        db.add(po)
+        db.flush()
     
     # Create line items
     for item in data.po_lines:
