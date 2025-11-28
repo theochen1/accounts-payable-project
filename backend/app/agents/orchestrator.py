@@ -4,7 +4,6 @@ LangGraph workflow orchestrator for agent-based invoice exception resolution.
 import logging
 from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.postgres import PostgresSaver
 from app.config import settings
 from app.agents.state import AgentState
 from app.agents.nodes import (
@@ -30,17 +29,24 @@ def create_agent_workflow(db_connection_string: str, db: Session = None):
     workflow = StateGraph(AgentState)
     
     # Create nodes with db access
-    # For MVP, we'll pass db through state if not provided
+    # If db is provided, create nodes with db bound
     if db:
         analyze_node = create_analyze_node(db)
         vendor_node = create_vendor_correction_node(db)
         price_node = create_price_variance_node(db)
     else:
-        # Fallback: nodes will get db from state
-        from app.agents.nodes import analyze_exception_node, vendor_correction_node, price_variance_node
-        analyze_node = analyze_exception_node
-        vendor_node = vendor_correction_node
-        price_node = price_variance_node
+        # Fallback: create nodes without db (will fail if they try to use db)
+        # This should not happen in production, but provides graceful degradation
+        logger.warning("Creating agent workflow without db session. Nodes requiring db will fail.")
+        from app.agents.nodes import create_analyze_node, create_vendor_correction_node, create_price_variance_node
+        # Create dummy nodes that will escalate immediately
+        def dummy_node(state):
+            state["should_escalate"] = True
+            state["escalation_reason"] = "Database session not available"
+            return state
+        analyze_node = dummy_node
+        vendor_node = dummy_node
+        price_node = dummy_node
     
     # Add nodes
     workflow.add_node("analyze", analyze_node)
@@ -86,14 +92,24 @@ def create_agent_workflow(db_connection_string: str, db: Session = None):
     workflow.add_edge("escalate", END)
     workflow.add_edge("finalize", END)
     
-    # Compile with PostgreSQL checkpointer (for state persistence)
+    # Compile workflow
+    # For MVP, we'll use in-memory checkpointer (state is stored in agent_tasks table anyway)
+    # PostgreSQL checkpointer requires langgraph-checkpoint package which has compatibility issues
+    # State persistence is handled via agent_tasks table, so checkpointer is optional
     try:
-        checkpointer = PostgresSaver.from_conn_string(db_connection_string)
-        app = workflow.compile(checkpointer=checkpointer)
-        logger.info("Agent workflow compiled successfully with PostgreSQL checkpointer")
+        # Try to use PostgreSQL checkpointer if available
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            checkpointer = PostgresSaver.from_conn_string(db_connection_string)
+            app = workflow.compile(checkpointer=checkpointer)
+            logger.info("Agent workflow compiled with PostgreSQL checkpointer")
+        except ImportError:
+            # Fallback to in-memory checkpointer
+            logger.info("PostgreSQL checkpointer not available, using in-memory checkpointer")
+            app = workflow.compile()
     except Exception as e:
-        logger.warning(f"Failed to initialize PostgreSQL checkpointer: {e}. Using in-memory checkpointer.")
-        # Fallback to in-memory checkpointer for development
+        logger.warning(f"Failed to initialize checkpointer: {e}. Using in-memory checkpointer.")
+        # Fallback to in-memory checkpointer
         app = workflow.compile()
     
     return app
