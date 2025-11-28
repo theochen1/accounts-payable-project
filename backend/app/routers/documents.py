@@ -157,34 +157,29 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
         logger.info(f"Starting OCR for document {document_id} ({document.filename}) using provider: {settings.ocr_provider}")
         ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         
-        # Verify and correct vendor identification using LLM
+        # Match vendor against existing vendors using intelligent matching
         from app.services.vendor_matching_service import vendor_matching_service
         if ocr_data.get('vendor_name'):
-            logger.info(f"Verifying vendor '{ocr_data.get('vendor_name')}' from document...")
-            ocr_data = await vendor_matching_service.verify_vendor_from_document(
-                ocr_data=ocr_data,
-                file_content=file_content,
-                filename=document.filename,
-                db=db
-            )
+            logger.info(f"Matching vendor '{ocr_data.get('vendor_name')}' against existing vendors...")
             
-            # Also find best match from existing vendors
+            # Use intelligent vendor matching (fuzzy + LLM reasoning)
             match_result = await vendor_matching_service.match_vendor(
-                extracted_vendor_name=ocr_data.get('vendor_name'),
+                ocr_data=ocr_data,
                 db=db,
-                ocr_data=ocr_data
+                file_content=file_content,
+                filename=document.filename
             )
             
-            # Add vendor match suggestions to OCR data
+            # Add vendor match suggestions to OCR data for the frontend
             ocr_data['vendor_match'] = {
-                'matched_vendor_id': match_result.get('matched_vendor_id'),
-                'matched_vendor_name': match_result.get('matched_vendor_name'),
+                'matched_vendor_id': match_result.get('vendor_id'),
+                'matched_vendor_name': match_result.get('vendor_name'),
                 'confidence': match_result.get('confidence'),
                 'match_type': match_result.get('match_type'),
-                'suggested_name': match_result.get('suggested_name'),
+                'suggested_vendor': match_result.get('suggested_vendor'),
                 'reasoning': match_result.get('reasoning')
             }
-            logger.info(f"Vendor match result: {match_result.get('match_type')} - {match_result.get('matched_vendor_name') or match_result.get('suggested_name')}")
+            logger.info(f"Vendor match result: {match_result.get('match_type')} - {match_result.get('vendor_name')} (confidence: {match_result.get('confidence', 0):.0%})")
         
         # Store OCR results
         document.ocr_data = ocr_data
