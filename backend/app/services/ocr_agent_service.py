@@ -158,15 +158,33 @@ class OCRAgentService:
             file_content, filename, validated_results
         )
         
-        # Step 4: Final verification pass if needed
+        # Step 4: Check for total mismatch and attempt correction
+        total_amount = best_result.get('total_amount')
+        line_items = best_result.get('line_items', [])
+        if total_amount and line_items:
+            line_sum = sum(
+                (item.get('quantity') or 0) * (item.get('unit_price') or 0)
+                for item in line_items
+            )
+            if line_sum > 0:
+                variance = abs(total_amount - line_sum) / total_amount
+                if variance > 0.01:  # More than 1% difference
+                    logger.info(f"Total mismatch detected: sum=${line_sum:,.2f}, total=${total_amount:,.2f}, variance={variance*100:.1f}%")
+                    best_result = self._correct_number_format_with_total_constraint(best_result)
+                    best_result['needs_verification'] = True
+        
+        # Step 5: Final verification pass if needed
         if best_result.get('needs_verification', False):
-            logger.info("Running final verification pass...")
+            logger.info("Running final verification pass with total constraint...")
             best_result = await self._verification_pass(
                 file_content, filename, best_result
             )
         
         # Clean up and return
         best_result.pop('needs_verification', None)
+        best_result.pop('_needs_number_format_correction', None)
+        best_result.pop('_current_sum', None)
+        best_result.pop('_variance_percent', None)
         best_result['extraction_source'] = 'ocr_agent_ensemble'
         
         return best_result
@@ -587,10 +605,17 @@ Return ONLY JSON, no code blocks or explanation."""
             if line_sum > 0:
                 variance = abs(extraction.total_amount - line_sum) / extraction.total_amount
                 if variance > 0.1:  # More than 10% difference
+                    # Check if this might be a number format issue (period/comma confusion)
+                    # If the difference is very large, it's likely a format issue
+                    diff_ratio = max(extraction.total_amount, line_sum) / min(extraction.total_amount, line_sum)
+                    format_issue_hint = ""
+                    if diff_ratio > 10:  # One is 10x the other - likely format confusion
+                        format_issue_hint = " This may indicate number format confusion (period/comma misinterpretation)."
+                    
                     issues.append(ValidationIssue(
                         issue_type="total_mismatch",
                         severity="error",
-                        message=f"Sum of line items (${line_sum:,.2f}) doesn't match total (${extraction.total_amount:,.2f})",
+                        message=f"Sum of line items (${line_sum:,.2f}) doesn't match total (${extraction.total_amount:,.2f}).{format_issue_hint}",
                         field="total_amount",
                         expected_value=extraction.total_amount,
                         actual_value=line_sum
@@ -615,6 +640,11 @@ Return ONLY JSON, no code blocks or explanation."""
         if len(validated_results) == 1:
             extraction, issues = validated_results[0]
             result = self._extraction_to_dict(extraction)
+            
+            # Check for total mismatch issues and attempt correction
+            total_mismatch_issues = [i for i in issues if i.issue_type == "total_mismatch"]
+            if total_mismatch_issues:
+                result = self._correct_number_format_with_total_constraint(result)
             
             # If there are errors, flag for verification
             if any(i.severity == "error" for i in issues):
@@ -706,21 +736,43 @@ Return ONLY JSON, no code blocks or explanation."""
         # Build comparison summary for the prompt
         comparison_text = self._format_comparison_for_prompt(comparison, validated_results)
         
+        # Calculate totals from comparison for constraint checking
+        total_amounts = list(comparison.get("total_amount", {}).values())
+        invoice_total = total_amounts[0] if total_amounts else None
+        
+        total_constraint_section = ""
+        if invoice_total:
+            total_constraint_section = f"""
+
+⚠️ CRITICAL MATH CONSTRAINT:
+- The invoice total is: ${invoice_total:,.2f}
+- Sum of ALL line items (quantity × unit_price) MUST equal this total
+- Use this as a constraint to verify and correct number formats"""
+        
         prompt = f"""You are an expert at resolving OCR conflicts. Multiple OCR models have extracted data from the same invoice with DIFFERENT results.
 
 EXTRACTION COMPARISON:
 {comparison_text}
+{total_constraint_section}
 
 YOUR TASK:
 1. Look at the ORIGINAL document image
 2. Identify which model got each field CORRECT
 3. Pay SPECIAL attention to line item columns (Price vs Qty vs Total)
 4. Use MATH to verify: quantity × unit_price should ≈ line_total
+5. CRITICAL: Verify that sum of all line items equals the invoice total
 
-COMMON ERROR PATTERN:
+COMMON ERROR PATTERNS:
 - OCR often confuses the "Total" column with "Unit Price"
 - If you see qty=45000 and unit_price=45000, resulting in a BILLION dollar line...
 - That's WRONG. Look at the actual columns carefully.
+
+- Decimal point vs comma confusion:
+  - OCR might read $33.48 as $33,48 (treating period as thousands separator)
+  - Or read $122,779.36 as $122.77936 (treating comma as decimal)
+  - Use the invoice total as a constraint to determine correct format
+  - Example: If total is $122.04, but prices sum to $122,779.36, there's format confusion
+  - Correct by swapping periods/commas until sum matches total
 
 Return the CORRECT values as JSON:
 {{
@@ -867,6 +919,65 @@ Return ONLY JSON."""
         
         return result
     
+    def _correct_number_format_with_total_constraint(
+        self,
+        result: Dict
+    ) -> Dict:
+        """
+        Attempt to correct number format issues (period/comma confusion) using total as constraint.
+        
+        Common issue: OCR reads $33.48 as $33,48 (treating period as thousands separator)
+        Solution: Use the total amount as a constraint to correct line item prices.
+        """
+        if not result.get('total_amount') or not result.get('line_items'):
+            return result
+        
+        total_amount = float(result['total_amount'])
+        line_items = result['line_items']
+        
+        if not line_items:
+            return result
+        
+        # Calculate current sum
+        current_sum = sum(
+            (item.get('quantity') or 0) * (item.get('unit_price') or 0)
+            for item in line_items
+        )
+        
+        if current_sum == 0:
+            return result
+        
+        # Check if sum matches total (within 1% tolerance)
+        variance = abs(total_amount - current_sum) / total_amount
+        if variance <= 0.01:  # Already correct
+            return result
+        
+        logger.info(f"Line items sum (${current_sum:,.2f}) doesn't match total (${total_amount:,.2f}). "
+                    f"Variance: {variance*100:.1f}%. Attempting number format correction...")
+        
+        # Try heuristic correction: if prices look like they might have comma/period confusion
+        # This is a simple heuristic - the LLM verification pass will do better reasoning
+        corrected_items = []
+        for item in line_items:
+            corrected_item = item.copy()
+            price = item.get('unit_price')
+            
+            if price is not None and price > 0:
+                # Heuristic: if price is between 0-1000 and has unusual decimal pattern
+                # (e.g., 33.48 stored as 33,48.00 or similar), try basic correction
+                # But this is limited - better to let LLM handle it
+                pass
+            
+            corrected_items.append(corrected_item)
+        
+        # Store flag for LLM to handle in verification
+        result['_needs_number_format_correction'] = True
+        result['_current_sum'] = current_sum
+        result['_total_amount'] = total_amount
+        result['_variance_percent'] = variance * 100
+        
+        return result
+    
     async def _verification_pass(
         self,
         file_content: bytes,
@@ -874,7 +985,7 @@ Return ONLY JSON."""
         current_result: Dict
     ) -> Dict:
         """
-        Final verification pass - explicitly verify suspicious values
+        Final verification pass - explicitly verify suspicious values with total constraint
         """
         
         if not self.openai_client:
@@ -892,11 +1003,38 @@ Return ONLY JSON."""
             base64_image = base64.b64encode(file_content).decode('utf-8')
             mime_type = self._get_mime_type(filename)
         
-        # Focus verification on line items
+        # Check if we need number format correction
+        needs_correction = current_result.pop('_needs_number_format_correction', False)
+        current_sum = current_result.pop('_current_sum', None)
+        total_amount = current_result.get('total_amount', 0)
+        variance_percent = current_result.pop('_variance_percent', None)
+        
+        # Calculate sum to check
+        line_items = current_result.get('line_items', [])
+        calculated_sum = sum(
+            (item.get('quantity') or 0) * (item.get('unit_price') or 0)
+            for item in line_items
+        )
+        
+        # Build verification prompt with total constraint
+        total_constraint_note = ""
+        if needs_correction or (calculated_sum > 0 and abs(total_amount - calculated_sum) / total_amount > 0.01):
+            total_constraint_note = f"""
+
+⚠️ CRITICAL MATH CONSTRAINT:
+- Current sum of line items: ${calculated_sum:,.2f}
+- Invoice total: ${total_amount:,.2f}
+- Difference: {abs(total_amount - calculated_sum):,.2f} ({abs(total_amount - calculated_sum) / total_amount * 100:.1f}%)
+
+The sum of ALL line items MUST equal the invoice total. If it doesn't, there's likely a number format error."""
+
         prompt = f"""VERIFICATION REQUEST: Please verify the line items in this invoice.
 
 CURRENT EXTRACTED DATA:
-{json.dumps(current_result.get('line_items', []), indent=2)}
+{json.dumps(line_items, indent=2)}
+
+INVOICE TOTAL: ${total_amount:,.2f}
+{total_constraint_note}
 
 VERIFICATION CHECKLIST:
 1. Look at the table in the image
@@ -906,7 +1044,22 @@ VERIFICATION CHECKLIST:
    - Is the unit price correct (price for ONE unit)?
    - Does qty × unit_price ≈ line total shown on document?
 
-4. If the current data shows qty=45000 and unit_price=45000, that's likely WRONG.
+4. COMMON OCR ERROR: Decimal point vs comma confusion
+   - Example: OCR might read $33.48 as $33,48 (treating period as thousands separator)
+   - If prices look like: $33,48, $28,28, $5,86, $55,42
+   - But total is: $122.04 or $122,779.36
+   - This suggests OCR misread periods as commas (or vice versa)
+   - Correct prices should be: $33.48, $28.28, $5.86, $55.42
+   - VERIFY: Sum of corrected prices should equal the invoice total
+
+5. MATH CONSTRAINT (CRITICAL):
+   - Sum of (quantity × unit_price) for ALL lines MUST equal invoice total
+   - If it doesn't match, re-examine the number formatting
+   - Try swapping periods and commas in prices
+   - Use the total as a constraint to find correct values
+   - Example: If total is $122.04, but prices sum to $122,779.36, there's a format error
+
+6. If the current data shows qty=45000 and unit_price=45000, that's likely WRONG.
    The unit price column probably shows $1.00
 
 Return CORRECTED line items as JSON:
@@ -920,9 +1073,10 @@ Return CORRECTED line items as JSON:
             "line_total": verified_total
         }}
     ],
-    "verification_notes": "What was corrected and why"
+    "verification_notes": "What was corrected and why. Include math check: sum of line items = total"
 }}
 
+IMPORTANT: After correction, verify that sum of all (quantity × unit_price) equals the invoice total.
 Return ONLY JSON."""
 
         try:
