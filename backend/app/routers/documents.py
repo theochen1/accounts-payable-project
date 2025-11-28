@@ -224,6 +224,9 @@ async def save_document(
         
         return result
         
+    except HTTPException:
+        # Re-raise HTTPExceptions (they already have proper status codes)
+        raise
     except Exception as e:
         logger.error(f"Failed to save document {document_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -349,7 +352,7 @@ async def _save_po(document: Document, data, db: Session):
     
     if existing_po:
         # If PO exists and was created from the same document, update it
-        if existing_po.source_document_id == document.id:
+        if existing_po.source_document_id is not None and existing_po.source_document_id == document.id:
             logger.info(f"PO {data.po_number} already exists from this document. Updating existing PO.")
             po = existing_po
             # Update PO fields
@@ -362,10 +365,11 @@ async def _save_po(document: Document, data, db: Session):
             db.query(POLine).filter(POLine.po_id == po.id).delete()
             db.flush()
         else:
-            # PO exists from a different document - this is an error
+            # PO exists from a different document (or was created before document system)
+            source_info = f"document {existing_po.source_document_id}" if existing_po.source_document_id else "legacy system"
             raise HTTPException(
                 status_code=400, 
-                detail=f"PO number {data.po_number} already exists (created from document {existing_po.source_document_id})"
+                detail=f"PO number {data.po_number} already exists (created from {source_info})"
             )
     else:
         # Create new PO
