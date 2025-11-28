@@ -440,12 +440,16 @@ async def _save_po(document: Document, data, db: Session):
     
     # Find or create vendor using intelligent matching
     try:
-        vendor_id = await _find_or_create_vendor(
+        vendor_id, vendor_match = await _find_or_create_vendor(
             vendor_id=data.vendor_id,
             vendor_name=data.vendor_name,
             currency=data.currency,
-            db=db
+            db=db,
+            ocr_data=document.ocr_data,
+            file_content=None,  # PO save doesn't need vision verification
+            filename=document.filename
         )
+        logger.info(f"PO vendor match: {vendor_match.get('match_type')} - {vendor_match.get('vendor_name')}")
     except HTTPException:
         raise HTTPException(status_code=400, detail="Vendor is required for purchase orders")
     
