@@ -99,9 +99,8 @@ def upgrade() -> None:
         END $$;
     """)
     
-    # Update document_type to be NOT NULL (will need to handle existing nulls)
-    op.execute("UPDATE documents SET document_type = 'invoice' WHERE document_type IS NULL")
-    op.alter_column('documents', 'document_type', nullable=False)
+    # document_type should remain nullable (set during classification step)
+    # No need to make it NOT NULL - it's set when user classifies the document
     
     # Update status default
     op.alter_column('documents', 'status', server_default='uploaded')

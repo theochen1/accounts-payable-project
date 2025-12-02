@@ -11,7 +11,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True, index=True)
-    document_type = Column(String, nullable=False, index=True)  # 'invoice', 'purchase_order', 'receipt'
+    document_type = Column(String, nullable=True, index=True)  # 'invoice', 'purchase_order', 'receipt' - null until classified
     status = Column(String, default="uploaded", index=True)  # uploaded, classified, ocr_processing, pending_verification, verified, processed
     
     # Common fields (denormalized for queries)
