@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
-from app.routers import vendors, documents, agents
+from app.routers import vendors, documents, agents, matching
 from app.database import engine, Base
 from app.config import settings
 from app.services.storage_service import storage_service
@@ -77,6 +77,7 @@ app.add_middleware(
 app.include_router(documents.router)  # Unified document queue
 app.include_router(vendors.router)
 app.include_router(agents.router)  # AI agent exception resolution
+app.include_router(matching.router)  # Matching and review queue
 
 
 @app.get("/")

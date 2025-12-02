@@ -534,7 +534,7 @@ async def finalize_document(
     document_id: int,
     db: Session = Depends(get_db)
 ):
-    """Finalize document - trigger agentic workflow if needed - status: verified -> processed"""
+    """Finalize document - create Invoice/PO record and trigger matching - status: verified -> processed"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -542,20 +542,47 @@ async def finalize_document(
     if document.status != "verified":
         raise HTTPException(status_code=400, detail=f"Document must be verified before finalizing. Current status: {document.status}")
     
-    # For invoices with PO references, trigger matching and potentially agentic workflow
+    # Use document bridge to create Invoice or PO record
+    from app.services.document_bridge import document_bridge
+    
+    created_record = None
     if document.document_type == "invoice":
-        po_number = document.type_specific_data.get('po_number') if document.type_specific_data else None
-        
-        if po_number:
-            # Import here to avoid circular dependency
-            from app.models.purchase_order import PurchaseOrder
-            po = db.query(PurchaseOrder).filter(PurchaseOrder.po_number == po_number).first()
+        try:
+            invoice = document_bridge.create_invoice_from_document(document, db)
+            created_record = {"type": "invoice", "id": invoice.id, "invoice_number": invoice.invoice_number}
+            logger.info(f"Created Invoice {invoice.id} from Document {document_id}")
             
-            if po:
-                # Run matching (this would create an Invoice record and match it)
-                # For now, we'll just mark as processed
-                # In a full implementation, this would create the Invoice and trigger matching
-                logger.info(f"Invoice document {document_id} references PO {po_number}, matching will be handled separately")
+            # Trigger matching if PO exists
+            if invoice.po_number:
+                from app.services.matching_agent_v2 import MatchingAgentV2
+                from app.services.review_queue_service import review_queue_service
+                
+                try:
+                    agent = MatchingAgentV2(db)
+                    matching_result = await agent.process_invoice(invoice.id)
+                    
+                    # Add to review queue if needed
+                    if matching_result.match_status == "needs_review":
+                        review_queue_service.add_to_queue(matching_result, db)
+                        logger.info(f"Added invoice {invoice.id} to review queue")
+                    else:
+                        logger.info(f"Invoice {invoice.id} matched successfully")
+                except Exception as e:
+                    logger.error(f"Error running matching for invoice {invoice.id}: {e}", exc_info=True)
+                    # Continue anyway - matching can be retried later
+        
+        except Exception as e:
+            logger.error(f"Error creating Invoice from Document {document_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to create Invoice: {str(e)}")
+    
+    elif document.document_type == "purchase_order":
+        try:
+            po = document_bridge.create_po_from_document(document, db)
+            created_record = {"type": "purchase_order", "id": po.id, "po_number": po.po_number}
+            logger.info(f"Created PurchaseOrder {po.id} from Document {document_id}")
+        except Exception as e:
+            logger.error(f"Error creating PurchaseOrder from Document {document_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to create PurchaseOrder: {str(e)}")
     
     # Update status to processed
     document.status = "processed"
@@ -567,6 +594,7 @@ async def finalize_document(
         "success": True,
         "document_id": document_id,
         "status": "processed",
+        "created_record": created_record
         "message": "Document finalized successfully"
     }
 

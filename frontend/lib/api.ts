@@ -424,3 +424,89 @@ export const agentApi = {
   },
 };
 
+// Matching API interfaces
+export interface MatchingIssueV2 {
+  category: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  message: string;
+  details: Record<string, any>;
+  line_number?: number;
+}
+
+export interface MatchingResultV2 {
+  id: string;
+  invoice_id: number;
+  po_id?: number;
+  match_status: 'matched' | 'needs_review';
+  confidence_score?: number;
+  issues?: MatchingIssueV2[];
+  reasoning?: string;
+  matched_by?: string;
+  matched_at: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  created_at: string;
+  invoice_number?: string;
+  vendor_name?: string;
+  total_amount?: number;
+  currency?: string;
+}
+
+export interface ReviewQueueItem {
+  id: string;
+  matching_result_id: string;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  issue_category: string;
+  assigned_to?: string;
+  sla_deadline?: string;
+  created_at: string;
+  resolved_at?: string;
+  resolution_notes?: string;
+  matching_result?: MatchingResultV2;
+}
+
+export const matchingApi = {
+  processInvoice: async (invoiceId: number): Promise<MatchingResultV2> => {
+    const response = await api.post(`/api/matching/${invoiceId}/process`);
+    return response.data;
+  },
+
+  getResult: async (resultId: string): Promise<MatchingResultV2> => {
+    const response = await api.get(`/api/matching/results/${resultId}`);
+    return response.data;
+  },
+
+  listReviewQueue: async (params?: {
+    priority?: string;
+    issue_category?: string;
+    status?: 'pending' | 'resolved';
+    limit?: number;
+  }): Promise<ReviewQueueItem[]> => {
+    const response = await api.get('/api/matching/review-queue', { params });
+    return response.data;
+  },
+
+  resolveQueueItem: async (
+    queueId: string,
+    resolution: 'approved' | 'rejected',
+    notes?: string
+  ): Promise<ReviewQueueItem> => {
+    const response = await api.post(`/api/matching/review-queue/${queueId}/resolve`, {
+      resolution,
+      notes,
+    });
+    return response.data;
+  },
+
+  batchProcess: async (invoiceIds: number[]): Promise<{
+    processed_count: number;
+    results: MatchingResultV2[];
+    errors: Array<{ invoice_id: number; error: string }>;
+  }> => {
+    const response = await api.post('/api/matching/batch', {
+      invoice_ids: invoiceIds,
+    });
+    return response.data;
+  },
+};
+

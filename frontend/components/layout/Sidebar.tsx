@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, CheckCircle2, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, CheckCircle2, Settings, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Documents', href: '/documents', icon: FileText },
+  { name: 'Review Queue', href: '/review-queue', icon: AlertCircle },
   { name: 'Processed', href: '/processed', icon: CheckCircle2 },
 ];
 

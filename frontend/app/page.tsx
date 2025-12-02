@@ -21,11 +21,21 @@ export default function Dashboard() {
     loadDocuments();
   }, []);
 
+  const [allDocuments, setAllDocuments] = useState<Document[]>([]);
+  const [processedDocuments, setProcessedDocuments] = useState<number>(0);
+
   const loadDocuments = async () => {
     try {
-      const docs = await documentApi.list();
-      // Filter out processed documents (they're in the processed archive)
-      setDocuments(docs.filter((d) => d.status !== 'processed'));
+      // Load all documents (including processed) for stats
+      const allDocs = await documentApi.list();
+      setAllDocuments(allDocs);
+      
+      // Filter out processed documents for the pending list (they're in the processed archive)
+      setDocuments(allDocs.filter((d) => d.status !== 'processed'));
+      
+      // Load processed documents count separately
+      const processedDocs = await documentApi.listProcessed();
+      setProcessedDocuments(processedDocs.length);
     } catch (error) {
       console.error('Failed to load documents:', error);
     } finally {
@@ -34,10 +44,10 @@ export default function Dashboard() {
   };
 
   const stats = {
-    pending: documents.filter((d) => d.status === 'pending').length,
-    processing: documents.filter((d) => d.status === 'processing').length,
-    processed: documents.filter((d) => d.status === 'processed').length,
-    errors: documents.filter((d) => d.status === 'error').length,
+    pending: allDocuments.filter((d) => d.status === 'pending' || d.status === 'uploaded' || d.status === 'classified' || d.status === 'pending_verification').length,
+    processing: allDocuments.filter((d) => d.status === 'processing' || d.status === 'ocr_processing').length,
+    processed: processedDocuments,
+    errors: allDocuments.filter((d) => d.status === 'error').length,
   };
 
   const handleUploadSuccess = () => {
