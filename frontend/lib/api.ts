@@ -221,14 +221,24 @@ export const vendorApi = {
 export interface Document {
   id: number;
   filename: string;
-  storage_path: string;
-  document_type: 'invoice' | 'po' | null;
-  status: 'pending' | 'processing' | 'processed' | 'error';
+  file_path: string;
+  document_type: 'invoice' | 'purchase_order' | 'receipt' | null;
+  status: 'uploaded' | 'classified' | 'ocr_processing' | 'pending_verification' | 'verified' | 'processed' | 'error' | 'pending' | 'processing';
   error_message?: string;
   ocr_data?: any;
-  processed_id?: number;
+  vendor_name?: string;
+  vendor_id?: number;
+  document_number?: string;
+  document_date?: string;
+  total_amount?: number;
+  currency?: string;
+  type_specific_data?: any;
+  line_items?: any[];
+  vendor_match?: any;
   created_at: string;
   updated_at?: string;
+  uploaded_at?: string;
+  processed_at?: string;
 }
 
 export interface DocumentOCRResult {

@@ -29,11 +29,9 @@ export default function VerifyPage() {
       const doc = await documentApi.get(documentId);
       setDocument(doc);
       
-      // Construct document URL - Note: Backend needs to implement /api/documents/{id}/file endpoint
-      // For now, we'll try to construct a URL but it may not work until endpoint is added
+      // Construct document URL using the file endpoint
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      if (doc.storage_path) {
-        // Try the file endpoint (may need to be implemented in backend)
+      if (doc.file_path) {
         setDocumentUrl(`${baseUrl}/api/documents/${doc.id}/file`);
       }
     } catch (error: any) {
@@ -55,7 +53,7 @@ export default function VerifyPage() {
     try {
       await documentApi.save(document.id, {
         invoice_data: document.document_type === 'invoice' ? (data as InvoiceSaveData) : undefined,
-        po_data: document.document_type === 'po' ? (data as POSaveData) : undefined,
+        po_data: document.document_type === 'purchase_order' ? (data as POSaveData) : undefined,
       });
 
       toast({
