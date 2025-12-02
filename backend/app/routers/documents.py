@@ -30,6 +30,21 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def convert_decimals_to_float(obj):
+    """Recursively convert Decimal objects to float for JSON serialization"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_decimals_to_float(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimals_to_float(item) for item in obj]
+    elif isinstance(obj, date):
+        return obj.isoformat()
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
+
 def get_ocr_service():
     """Get the appropriate OCR service based on configuration"""
     if settings.ocr_provider == "agent":
@@ -314,12 +329,15 @@ async def process_ocr(document_id: int, db: Session = Depends(get_db)):
         document.document_date = unified_data.get('document_date')
         document.total_amount = unified_data.get('total_amount')
         document.currency = unified_data.get('currency', 'USD')
-        document.type_specific_data = unified_data.get('type_specific_data', {})
-        document.line_items = unified_data.get('line_items', [])
-        document.raw_ocr = unified_data.get('raw_ocr', unified_data)
+        
+        # Convert Decimals to float for JSON serialization
+        document.type_specific_data = convert_decimals_to_float(unified_data.get('type_specific_data', {}))
+        document.line_items = convert_decimals_to_float(unified_data.get('line_items', []))
+        document.raw_ocr = convert_decimals_to_float(unified_data.get('raw_ocr', unified_data))
+        document.vendor_match = convert_decimals_to_float(unified_data.get('vendor_match'))
+        
         document.extraction_source = unified_data.get('extraction_source', settings.ocr_provider)
         document.vendor_id = unified_data.get('vendor_match', {}).get('matched_vendor_id')
-        document.vendor_match = unified_data.get('vendor_match')
         
         # Update status to pending_verification
         document.status = "pending_verification"
@@ -378,16 +396,18 @@ async def verify_document(
     document.document_date = verify_data.document_date
     document.total_amount = verify_data.total_amount
     document.currency = verify_data.currency
-    document.line_items = [item.dict() for item in verify_data.line_items]
     
-    # Store type-specific data
+    # Convert line items to dict and convert Decimals to float
+    document.line_items = convert_decimals_to_float([item.dict() for item in verify_data.line_items])
+    
+    # Store type-specific data (convert Decimals to float)
     type_specific = {}
     if document.document_type == "invoice" and verify_data.invoice_data:
-        type_specific = verify_data.invoice_data.dict(exclude_none=True)
+        type_specific = convert_decimals_to_float(verify_data.invoice_data.dict(exclude_none=True))
     elif document.document_type == "purchase_order" and verify_data.po_data:
-        type_specific = verify_data.po_data.dict(exclude_none=True)
+        type_specific = convert_decimals_to_float(verify_data.po_data.dict(exclude_none=True))
     elif document.document_type == "receipt" and verify_data.receipt_data:
-        type_specific = verify_data.receipt_data.dict(exclude_none=True)
+        type_specific = convert_decimals_to_float(verify_data.receipt_data.dict(exclude_none=True))
     
     document.type_specific_data = type_specific
     
