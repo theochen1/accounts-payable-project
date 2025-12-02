@@ -109,6 +109,47 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
     return document
 
 
+@router.get("/{document_id}/file")
+def get_document_file(document_id: int, db: Session = Depends(get_db)):
+    """Serve the document file"""
+    from fastapi.responses import Response
+    
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        file_content = storage_service.download_file(document.storage_path)
+        
+        # Determine content type from filename
+        ext = os.path.splitext(document.filename.lower())[1] if document.filename else ''
+        content_types = {
+            '.pdf': 'application/pdf',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.bmp': 'image/bmp',
+            '.webp': 'image/webp',
+            '.tiff': 'image/tiff',
+            '.tif': 'image/tiff',
+        }
+        content_type = content_types.get(ext, 'application/octet-stream')
+        
+        return Response(
+            content=file_content,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{document.filename}"'
+            }
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found in storage")
+    except Exception as e:
+        logger.error(f"Failed to serve file for document {document_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to serve file: {str(e)}")
+
+
 @router.patch("/{document_id}/type", response_model=DocumentResponse)
 def set_document_type(
     document_id: int,

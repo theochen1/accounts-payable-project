@@ -58,8 +58,8 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
     defaultValues: isInvoice
       ? {
           invoice_number: ocrData.invoice_number || '',
-          vendor_name: ocrData.vendor_name || '',
-          vendor_id: undefined,
+          vendor_name: ocrData.vendor_name || ocrData.vendor_match?.matched_vendor_name || '',
+          vendor_id: ocrData.vendor_match?.matched_vendor_id || undefined,
           po_number: ocrData.po_number || '',
           invoice_date: ocrData.invoice_date || '',
           total_amount: ocrData.total_amount || undefined,
@@ -67,8 +67,8 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
         }
       : {
           po_number: ocrData.po_number || '',
-          vendor_name: ocrData.vendor_name || '',
-          vendor_id: undefined,
+          vendor_name: ocrData.vendor_name || ocrData.vendor_match?.matched_vendor_name || '',
+          vendor_id: ocrData.vendor_match?.matched_vendor_id || undefined,
           order_date: ocrData.order_date || '',
           total_amount: ocrData.total_amount || 0,
           currency: ocrData.currency || 'USD',
@@ -78,12 +78,25 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
 
   useEffect(() => {
     loadVendors();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document.id]);
 
   const loadVendors = async () => {
     try {
       const data = await vendorApi.list();
       setVendors(data);
+      
+      // Auto-populate vendor_id from OCR data if vendor_match exists
+      if (ocrData.vendor_match?.matched_vendor_id) {
+        const matchedVendorId = ocrData.vendor_match.matched_vendor_id;
+        setValue('vendor_id', matchedVendorId);
+        const matchedVendor = data.find((v: any) => v.id === matchedVendorId);
+        if (matchedVendor) {
+          setValue('vendor_name', matchedVendor.name);
+        } else if (ocrData.vendor_match.matched_vendor_name) {
+          setValue('vendor_name', ocrData.vendor_match.matched_vendor_name);
+        }
+      }
     } catch (error) {
       console.error('Failed to load vendors:', error);
     }
