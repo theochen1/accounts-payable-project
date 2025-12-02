@@ -878,7 +878,8 @@ Return ONLY the JSON, no markdown."""
         file_content: bytes,
         filename: str,
         comparison: Dict,
-        validated_results: List[Tuple[ExtractionResult, List[ValidationIssue]]]
+        validated_results: List[Tuple[ExtractionResult, List[ValidationIssue]]],
+        document_type: str = "invoice"
     ) -> Dict:
         """Use LLM reasoning to reconcile extraction results"""
         
