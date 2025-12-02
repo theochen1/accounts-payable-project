@@ -62,12 +62,29 @@ def list_documents(
     return documents
 
 
-@router.post("/upload", response_model=DocumentResponse)
+@router.post("", response_model=DocumentResponse)
 async def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    """Upload a document file - status: uploaded (alias for /upload)"""
+    return await _upload_document_impl(file, db)
+
+
+@router.post("/upload", response_model=DocumentResponse)
+async def upload_document_upload(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
     """Upload a document file - status: uploaded"""
+    return await _upload_document_impl(file, db)
+
+
+async def _upload_document_impl(
+    file: UploadFile,
+    db: Session
+) -> DocumentResponse:
+    """Internal implementation for document upload"""
     # Validate file type
     allowed_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
     file_ext = os.path.splitext(file.filename.lower())[1] if file.filename else ''
