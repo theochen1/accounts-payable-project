@@ -284,13 +284,15 @@ export interface POSaveData {
 
 export interface ProcessedDocument {
   id: number;
-  document_type: 'invoice' | 'po';
-  reference_number: string;
+  document_type: 'invoice' | 'purchase_order' | 'receipt' | 'po';
+  document_number: string;
+  reference_number?: string; // Legacy field, maps to document_number
   vendor_name?: string;
   total_amount?: number;
   currency: string;
   status: string;
-  date?: string;
+  document_date?: string;
+  date?: string; // Legacy field, maps to document_date
   source_document_id?: number;
   created_at: string;
 }

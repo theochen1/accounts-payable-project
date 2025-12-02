@@ -179,6 +179,46 @@ class StorageService:
     def download_file(self, storage_path: str) -> bytes:
         """Alias for download_pdf - works for any file type"""
         return self.download_pdf(storage_path)
+    
+    def delete_file(self, storage_path: str) -> bool:
+        """
+        Delete file from storage
+        
+        Args:
+            storage_path: Storage path/key (relative path like "invoices/timestamp_filename.pdf")
+            
+        Returns:
+            True if file was deleted successfully, False otherwise
+        """
+        if self.s3_client:
+            try:
+                self.s3_client.delete_object(
+                    Bucket=self.bucket_name,
+                    Key=storage_path
+                )
+                logger.info(f"File deleted from S3: {storage_path}")
+                return True
+            except ClientError as e:
+                logger.error(f"Failed to delete file from S3: {str(e)}")
+                return False
+        else:
+            # For local storage
+            # storage_path is in format "invoices/timestamp_filename.pdf"
+            # Extract filename from storage_path
+            filename = os.path.basename(storage_path)
+            local_file_path = os.path.join(self.local_storage_dir, filename)
+            
+            if not os.path.exists(local_file_path):
+                logger.warning(f"File not found for deletion: {local_file_path}")
+                return False
+            
+            try:
+                os.remove(local_file_path)
+                logger.info(f"File deleted from local storage: {local_file_path}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to delete file from local storage: {str(e)}")
+                return False
 
 
 storage_service = StorageService()

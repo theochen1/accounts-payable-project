@@ -573,17 +573,21 @@ async def finalize_document(
 
 @router.delete("/{document_id}")
 def delete_document(document_id: int, db: Session = Depends(get_db)):
-    """Delete a document"""
+    """Delete a document and its associated file from storage"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if document.status == "processed":
-        raise HTTPException(
-            status_code=400, 
-            detail="Cannot delete processed document"
-        )
+    # Delete the file from storage if it exists
+    if document.file_path:
+        try:
+            storage_service.delete_file(document.file_path)
+            logger.info(f"File deleted from storage: {document.file_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete file from storage: {e}")
+            # Continue with database deletion even if file deletion fails
     
+    # Delete the document record
     db.delete(document)
     db.commit()
     
