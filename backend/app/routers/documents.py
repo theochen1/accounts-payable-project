@@ -594,7 +594,7 @@ async def finalize_document(
         "success": True,
         "document_id": document_id,
         "status": "processed",
-        "created_record": created_record
+        "created_record": created_record,
         "message": "Document finalized successfully"
     }
 
