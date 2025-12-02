@@ -1,32 +1,28 @@
 """
-Documents Router - Unified document upload and processing queue
+Documents Router - Unified document processing pipeline
 """
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.document import Document
-from app.models.invoice import Invoice
-from app.models.invoice_line import InvoiceLine
-from app.models.purchase_order import PurchaseOrder
-from app.models.po_line import POLine
 from app.models.vendor import Vendor
 from app.schemas.document import (
     DocumentResponse,
     DocumentListResponse,
-    DocumentUpdateType,
+    DocumentClassify,
+    DocumentVerify,
     DocumentOCRResult,
-    DocumentSaveRequest,
     ProcessedDocumentResponse
 )
-from app.services.ocr_service import ocr_service
+from app.services.field_mapper import field_mapper
 from app.services.storage_service import storage_service
 from app.services.matching_service import match_invoice_to_po
 from app.config import settings
@@ -37,13 +33,12 @@ logger = logging.getLogger(__name__)
 def get_ocr_service():
     """Get the appropriate OCR service based on configuration"""
     if settings.ocr_provider == "agent":
-        # Ensemble OCR agent with reasoning - best accuracy
         from app.services.ocr_agent_service import ocr_agent_service
         return ocr_agent_service
     elif settings.ocr_provider in ("hybrid", "gemini", "gpt4o"):
         from app.services.ocr_service_hybrid import hybrid_ocr_service
         return hybrid_ocr_service
-    # Default to Azure-based OCR service
+    from app.services.ocr_service import ocr_service
     return ocr_service
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -51,24 +46,28 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 @router.get("", response_model=List[DocumentListResponse])
 def list_documents(
-    status: Optional[str] = Query(None, description="Filter by status: pending, processing, processed, error"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    document_type: Optional[str] = Query(None, description="Filter by document type"),
     db: Session = Depends(get_db)
 ):
-    """List all documents in the queue"""
+    """List all documents with optional filters"""
     query = db.query(Document)
+    
     if status:
         query = query.filter(Document.status == status)
-    # Show newest first
+    if document_type:
+        query = query.filter(Document.document_type == document_type)
+    
     documents = query.order_by(Document.created_at.desc()).all()
     return documents
 
 
-@router.post("", response_model=DocumentResponse)
+@router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Upload a document to the processing queue"""
+    """Upload a document file - status: uploaded"""
     # Validate file type
     allowed_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
     file_ext = os.path.splitext(file.filename.lower())[1] if file.filename else ''
@@ -86,24 +85,24 @@ async def upload_document(
     storage_path = storage_service.upload_file(file_content, file.filename)
     logger.info(f"Document uploaded to storage: {storage_path}")
     
-    # Create document record in pending state
+    # Create document record with status=uploaded
     document = Document(
         filename=file.filename,
-        storage_path=storage_path,
-        document_type=None,  # User will select type
-        status="pending"
+        file_path=storage_path,
+        document_type=None,  # Will be set in classify step
+        status="uploaded"
     )
     db.add(document)
     db.commit()
     db.refresh(document)
     
-    logger.info(f"Document created with ID {document.id}, status: pending")
+    logger.info(f"Document created with ID {document.id}, status: uploaded")
     return document
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
 def get_document(document_id: int, db: Session = Depends(get_db)):
-    """Get a single document with full details including OCR data"""
+    """Get a single document with full details"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -120,7 +119,7 @@ def get_document_file(document_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Document not found")
     
     try:
-        file_content = storage_service.download_file(document.storage_path)
+        file_content = storage_service.download_file(document.file_path)
         
         # Determine content type from filename
         ext = os.path.splitext(document.filename.lower())[1] if document.filename else ''
@@ -151,61 +150,61 @@ def get_document_file(document_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to serve file: {str(e)}")
 
 
-@router.patch("/{document_id}/type", response_model=DocumentResponse)
-def set_document_type(
+@router.post("/{document_id}/classify", response_model=DocumentResponse)
+def classify_document(
     document_id: int,
-    update: DocumentUpdateType,
+    classify: DocumentClassify,
     db: Session = Depends(get_db)
 ):
-    """Set the document type (invoice or po)"""
+    """Set document type - status: uploaded -> classified"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if update.document_type not in ['invoice', 'po']:
-        raise HTTPException(status_code=400, detail="document_type must be 'invoice' or 'po'")
+    if document.status != "uploaded":
+        raise HTTPException(status_code=400, detail=f"Can only classify documents with status 'uploaded'. Current status: {document.status}")
     
-    if document.status not in ['pending', 'error']:
-        raise HTTPException(status_code=400, detail="Can only change type for pending or error documents")
+    if classify.document_type not in ['invoice', 'purchase_order', 'receipt']:
+        raise HTTPException(status_code=400, detail="document_type must be 'invoice', 'purchase_order', or 'receipt'")
     
-    document.document_type = update.document_type
+    document.document_type = classify.document_type
+    document.status = "classified"
     db.commit()
     db.refresh(document)
     
-    logger.info(f"Document {document_id} type set to: {update.document_type}")
+    logger.info(f"Document {document_id} classified as: {classify.document_type}")
     return document
 
 
-@router.post("/{document_id}/process", response_model=DocumentOCRResult)
-async def process_document(document_id: int, db: Session = Depends(get_db)):
-    """Process document with OCR and extract data"""
+@router.post("/{document_id}/process-ocr", response_model=DocumentOCRResult)
+async def process_ocr(document_id: int, db: Session = Depends(get_db)):
+    """Process document with OCR - status: classified -> ocr_processing -> pending_verification"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if not document.document_type:
-        raise HTTPException(status_code=400, detail="Document type must be set before processing")
+    if document.status != "classified":
+        raise HTTPException(status_code=400, detail=f"Document must be classified before OCR. Current status: {document.status}")
     
-    if document.status == "processing":
-        raise HTTPException(status_code=400, detail="Document is already being processed")
+    if not document.document_type:
+        raise HTTPException(status_code=400, detail="Document type must be set before OCR processing")
     
     # Set to processing
-    document.status = "processing"
+    document.status = "ocr_processing"
     document.error_message = None
     db.commit()
     
     try:
         # Download file from storage
-        file_content = storage_service.download_file(document.storage_path)
+        file_content = storage_service.download_file(document.file_path)
         
-        # Process with OCR (uses configured provider: azure, hybrid, gemini, or gpt4o)
+        # Process with OCR
         active_ocr_service = get_ocr_service()
         logger.info(f"Starting OCR for document {document_id} ({document.filename}) using provider: {settings.ocr_provider}")
         logger.info(f"Document type: {document.document_type}")
         
-        # Pass document type to OCR service if it supports it
+        # Pass document type to OCR service
         if hasattr(active_ocr_service, 'process_file'):
-            # Check if process_file accepts document_type parameter
             import inspect
             sig = inspect.signature(active_ocr_service.process_file)
             if 'document_type' in sig.parameters:
@@ -215,19 +214,19 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
         else:
             ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         
-        # Log full OCR output for debugging
+        # Normalize OCR output using FieldMapper
+        normalized_data = field_mapper.normalize(ocr_data, document.document_type)
+        unified_data = field_mapper.to_unified_document_format(normalized_data, document.document_type)
+        
+        # Log OCR results
         try:
             logger.info("=" * 80)
             logger.info(f"OCR EXTRACTION RESULTS for document {document_id} ({document.filename})")
             logger.info("=" * 80)
+            logger.info(f"OCR data keys: {list(unified_data.keys())}")
             
-            # Log all keys in OCR data
-            logger.info(f"OCR data keys: {list(ocr_data.keys())}")
-            
-            # Log full OCR data as JSON (with error handling)
             try:
-                ocr_json = json.dumps(ocr_data, indent=2, default=str)
-                # Split into chunks if too long (some log systems have limits)
+                ocr_json = json.dumps(unified_data, indent=2, default=str)
                 if len(ocr_json) > 5000:
                     logger.info("Full OCR data (first 5000 chars):")
                     logger.info(ocr_json[:5000])
@@ -236,53 +235,53 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
                     logger.info(f"Full OCR data (JSON):\n{ocr_json}")
             except Exception as e:
                 logger.warning(f"Could not serialize OCR data to JSON: {e}")
-                logger.info(f"OCR data (repr): {repr(ocr_data)}")
+                logger.info(f"OCR data (repr): {repr(unified_data)}")
             
             logger.info("-" * 80)
             
-            # Log specific fields of interest
-            if document.document_type == 'po':
+            # Log type-specific fields
+            if document.document_type == 'purchase_order':
                 logger.info("PO-SPECIFIC FIELDS:")
-                logger.info(f"  PO Number: {ocr_data.get('po_number', 'NOT FOUND')}")
-                logger.info(f"  Order Date: {ocr_data.get('order_date', 'NOT FOUND')}")
-                logger.info(f"  Requester Email: {ocr_data.get('requester_email', 'NOT FOUND')}")
-                logger.info(f"  Vendor Name: {ocr_data.get('vendor_name', 'NOT FOUND')}")
-                logger.info(f"  Total Amount: {ocr_data.get('total_amount', 'NOT FOUND')}")
-            else:
+                logger.info(f"  PO Number: {unified_data.get('document_number', 'NOT FOUND')}")
+                type_data = unified_data.get('type_specific_data', {})
+                logger.info(f"  Order Date: {type_data.get('order_date', 'NOT FOUND')}")
+                logger.info(f"  Requester Email: {type_data.get('requester_email', 'NOT FOUND')}")
+                logger.info(f"  Vendor Name: {unified_data.get('vendor_name', 'NOT FOUND')}")
+                logger.info(f"  Total Amount: {unified_data.get('total_amount', 'NOT FOUND')}")
+            elif document.document_type == 'invoice':
                 logger.info("INVOICE-SPECIFIC FIELDS:")
-                logger.info(f"  Invoice Number: {ocr_data.get('invoice_number', 'NOT FOUND')}")
-                logger.info(f"  PO Number: {ocr_data.get('po_number', 'NOT FOUND')}")
-                logger.info(f"  Invoice Date: {ocr_data.get('invoice_date', 'NOT FOUND')}")
-                logger.info(f"  Vendor Name: {ocr_data.get('vendor_name', 'NOT FOUND')}")
-                logger.info(f"  Total Amount: {ocr_data.get('total_amount', 'NOT FOUND')}")
+                logger.info(f"  Invoice Number: {unified_data.get('document_number', 'NOT FOUND')}")
+                type_data = unified_data.get('type_specific_data', {})
+                logger.info(f"  PO Number: {type_data.get('po_number', 'NOT FOUND')}")
+                logger.info(f"  Invoice Date: {unified_data.get('document_date', 'NOT FOUND')}")
+                logger.info(f"  Vendor Name: {unified_data.get('vendor_name', 'NOT FOUND')}")
+                logger.info(f"  Total Amount: {unified_data.get('total_amount', 'NOT FOUND')}")
             
-            logger.info(f"Line Items Count: {len(ocr_data.get('line_items', []))}")
-            if ocr_data.get('line_items'):
+            logger.info(f"Line Items Count: {len(unified_data.get('line_items', []))}")
+            if unified_data.get('line_items'):
                 try:
-                    first_item = json.dumps(ocr_data['line_items'][0], indent=2, default=str)
+                    first_item = json.dumps(unified_data['line_items'][0], indent=2, default=str)
                     logger.info(f"First line item:\n{first_item}")
                 except Exception as e:
-                    logger.info(f"First line item (repr): {repr(ocr_data['line_items'][0])}")
+                    logger.info(f"First line item (repr): {repr(unified_data['line_items'][0])}")
             
             logger.info("=" * 80)
         except Exception as e:
             logger.error(f"Error logging OCR results: {e}", exc_info=True)
         
-        # Match vendor against existing vendors using intelligent matching
+        # Match vendor against existing vendors
         from app.services.vendor_matching_service import vendor_matching_service
-        if ocr_data.get('vendor_name'):
-            logger.info(f"Matching vendor '{ocr_data.get('vendor_name')}' against existing vendors...")
+        if unified_data.get('vendor_name'):
+            logger.info(f"Matching vendor '{unified_data.get('vendor_name')}' against existing vendors...")
             
-            # Use intelligent vendor matching (fuzzy + LLM reasoning)
             match_result = await vendor_matching_service.match_vendor(
-                ocr_data=ocr_data,
+                ocr_data=unified_data,
                 db=db,
                 file_content=file_content,
                 filename=document.filename
             )
             
-            # Add vendor match suggestions to OCR data for the frontend
-            ocr_data['vendor_match'] = {
+            unified_data['vendor_match'] = {
                 'matched_vendor_id': match_result.get('vendor_id'),
                 'matched_vendor_name': match_result.get('vendor_name'),
                 'confidence': match_result.get('confidence'),
@@ -292,18 +291,39 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
             }
             logger.info(f"Vendor match result: {match_result.get('match_type')} - {match_result.get('vendor_name')} (confidence: {match_result.get('confidence', 0):.0%})")
         
-        # Store OCR results
-        document.ocr_data = ocr_data
-        document.status = "processed"
+        # Store OCR results in document
+        document.vendor_name = unified_data.get('vendor_name')
+        document.document_number = unified_data.get('document_number')
+        document.document_date = unified_data.get('document_date')
+        document.total_amount = unified_data.get('total_amount')
+        document.currency = unified_data.get('currency', 'USD')
+        document.type_specific_data = unified_data.get('type_specific_data', {})
+        document.line_items = unified_data.get('line_items', [])
+        document.raw_ocr = unified_data.get('raw_ocr', unified_data)
+        document.extraction_source = unified_data.get('extraction_source', settings.ocr_provider)
+        document.vendor_id = unified_data.get('vendor_match', {}).get('matched_vendor_id')
+        document.vendor_match = unified_data.get('vendor_match')
+        
+        # Update status to pending_verification
+        document.status = "pending_verification"
         document.error_message = None
         db.commit()
         db.refresh(document)
         
-        logger.info(f"Document {document_id} processed successfully")
+        logger.info(f"Document {document_id} OCR processing completed, status: pending_verification")
         return DocumentOCRResult(
             id=document.id,
             status=document.status,
-            ocr_data=document.ocr_data
+            ocr_data={
+                'vendor_name': document.vendor_name,
+                'document_number': document.document_number,
+                'document_date': document.document_date.isoformat() if document.document_date else None,
+                'total_amount': float(document.total_amount) if document.total_amount else None,
+                'currency': document.currency,
+                'line_items': document.line_items,
+                'type_specific_data': document.type_specific_data,
+                'vendor_match': document.vendor_match
+            }
         )
         
     except Exception as e:
@@ -320,334 +340,102 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
         )
 
 
-@router.post("/{document_id}/retry", response_model=DocumentOCRResult)
-async def retry_document(document_id: int, db: Session = Depends(get_db)):
-    """Retry OCR processing for a failed document"""
-    document = db.query(Document).filter(Document.id == document_id).first()
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-    
-    if document.status != "error":
-        raise HTTPException(status_code=400, detail="Can only retry documents with error status")
-    
-    # Reprocess
-    return await process_document(document_id, db)
-
-
-@router.post("/{document_id}/save")
-async def save_document(
+@router.post("/{document_id}/verify", response_model=DocumentResponse)
+async def verify_document(
     document_id: int,
-    save_data: DocumentSaveRequest,
-    background_tasks: BackgroundTasks,
+    verify_data: DocumentVerify,
     db: Session = Depends(get_db)
 ):
-    """Save a processed document as an Invoice or PO"""
+    """Save verified/corrected data - status: pending_verification -> verified"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if document.status != "processed":
-        raise HTTPException(status_code=400, detail="Document must be processed before saving")
+    if document.status != "pending_verification":
+        raise HTTPException(status_code=400, detail=f"Document must be in pending_verification status. Current status: {document.status}")
     
-    if not document.document_type:
-        raise HTTPException(status_code=400, detail="Document type not set")
+    # Update document with verified data
+    document.vendor_name = verify_data.vendor_name
+    document.vendor_id = verify_data.vendor_id
+    document.document_number = verify_data.document_number
+    document.document_date = verify_data.document_date
+    document.total_amount = verify_data.total_amount
+    document.currency = verify_data.currency
+    document.line_items = [item.dict() for item in verify_data.line_items]
     
-    try:
-        if document.document_type == "invoice":
-            if not save_data.invoice_data:
-                raise HTTPException(status_code=400, detail="invoice_data required for invoice documents")
-            
-            result = await _save_invoice(document, save_data.invoice_data, db)
-            
-        elif document.document_type == "po":
-            if not save_data.po_data:
-                raise HTTPException(status_code=400, detail="po_data required for PO documents")
-            
-            result = await _save_po(document, save_data.po_data, db)
-        
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown document type: {document.document_type}")
-        
-        return result
-        
-    except HTTPException:
-        # Re-raise HTTPExceptions (they already have proper status codes)
-        raise
-    except Exception as e:
-        logger.error(f"Failed to save document {document_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-async def _find_or_create_vendor(
-    vendor_id: Optional[int], 
-    vendor_name: str, 
-    currency: str, 
-    db: Session,
-    ocr_data: Optional[Dict] = None,
-    file_content: Optional[bytes] = None,
-    filename: Optional[str] = None
-) -> Tuple[int, Dict]:
-    """
-    Intelligently find or create a vendor using LLM matching
+    # Store type-specific data
+    type_specific = {}
+    if document.document_type == "invoice" and verify_data.invoice_data:
+        type_specific = verify_data.invoice_data.dict(exclude_none=True)
+    elif document.document_type == "purchase_order" and verify_data.po_data:
+        type_specific = verify_data.po_data.dict(exclude_none=True)
+    elif document.document_type == "receipt" and verify_data.receipt_data:
+        type_specific = verify_data.receipt_data.dict(exclude_none=True)
     
-    Args:
-        vendor_id: Explicit vendor ID if provided
-        vendor_name: Extracted vendor name from OCR
-        currency: Default currency for new vendors
-        db: Database session
-        ocr_data: Full OCR data for context-aware matching
-        file_content: Original file for vision-based verification
-        filename: Original filename
-        
-    Returns:
-        Tuple of (Vendor ID, match_result dict with details)
-    """
-    from app.services.vendor_matching_service import vendor_matching_service
+    document.type_specific_data = type_specific
     
-    if vendor_id:
-        vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
-        return vendor_id, {
-            'vendor_id': vendor_id,
-            'vendor_name': vendor.name if vendor else None,
-            'confidence': 1.0,
-            'match_type': 'explicit_id',
-            'reasoning': 'Vendor ID was explicitly provided'
-        }
-    
-    if not vendor_name:
-        raise HTTPException(status_code=400, detail="Vendor name is required")
-    
-    # Build OCR context for intelligent matching
-    ocr_context = ocr_data or {'vendor_name': vendor_name}
-    
-    # Use intelligent vendor matching
-    match_result = await vendor_matching_service.match_vendor(
-        ocr_data=ocr_context,
-        db=db,
-        file_content=file_content,
-        filename=filename
-    )
-    
-    logger.info(f"Vendor matching result: {match_result.get('match_type')} - {match_result.get('reasoning', '')[:100]}")
-    
-    if match_result.get('vendor_id'):
-        # Found existing vendor
-        logger.info(f"Matched vendor '{vendor_name}' to existing vendor: {match_result['vendor_name']} "
-                   f"(confidence: {match_result['confidence']:.0%}, type: {match_result['match_type']})")
-        return match_result['vendor_id'], match_result
-    
-    # No match - create new vendor with cleaned name
-    suggested_name = match_result.get('suggested_vendor') or match_result.get('vendor_name') or vendor_name
-    vendor = Vendor(name=suggested_name, default_currency=currency)
-    db.add(vendor)
-    db.flush()
-    logger.info(f"Created new vendor: {suggested_name}")
-    
-    match_result['vendor_id'] = vendor.id
-    match_result['vendor_name'] = suggested_name
-    match_result['match_type'] = 'created_new'
-    
-    return vendor.id, match_result
-
-
-async def _save_invoice(document: Document, data, db: Session):
-    """Save document as an Invoice"""
-    from app.schemas.document import InvoiceSaveData
-    from app.services.storage_service import storage_service
-    
-    # Get original file content for vision-based vendor verification if needed
-    file_content = None
-    try:
-        file_content = await storage_service.get_file(document.storage_path)
-    except Exception as e:
-        logger.warning(f"Could not retrieve file for vendor matching: {e}")
-    
-    # Find or create vendor using intelligent matching with full OCR context
-    vendor_id, vendor_match = await _find_or_create_vendor(
-        vendor_id=data.vendor_id,
-        vendor_name=data.vendor_name,
-        currency=data.currency,
-        db=db,
-        ocr_data=document.ocr_data,
-        file_content=file_content,
-        filename=document.filename
-    )
-    
-    # Log vendor matching details for debugging
-    if vendor_match.get('match_type') not in ['exact', 'explicit_id']:
-        logger.info(f"Vendor matching for invoice: {vendor_match}")
-    
-    # Parse date
-    invoice_date = None
-    if data.invoice_date:
-        try:
-            invoice_date = datetime.strptime(data.invoice_date, "%Y-%m-%d").date()
-        except ValueError:
-            logger.warning(f"Could not parse invoice date: {data.invoice_date}")
-    
-    # Create invoice
-    invoice = Invoice(
-        invoice_number=data.invoice_number,
-        vendor_id=vendor_id,
-        po_number=data.po_number,
-        invoice_date=invoice_date,
-        total_amount=data.total_amount,
-        currency=data.currency,
-        pdf_storage_path=document.storage_path,
-        ocr_json=document.ocr_data,
-        status="new",
-        source_document_id=document.id
-    )
-    db.add(invoice)
-    db.flush()
-    
-    # Create line items
-    for item in data.line_items:
-        line = InvoiceLine(
-            invoice_id=invoice.id,
-            line_no=item.line_no,
-            sku=item.sku,
-            description=item.description,
-            quantity=item.quantity,
-            unit_price=item.unit_price
-        )
-        db.add(line)
-    
-    # Update document
-    document.processed_id = invoice.id
+    # Update status to verified
+    document.status = "verified"
     db.commit()
+    db.refresh(document)
     
-    # Run matching
-    matching_result = None
-    try:
-        matching_result = match_invoice_to_po(db, invoice.id)
-        logger.info(f"Invoice {invoice.id} matching completed")
+    logger.info(f"Document {document_id} verified and saved")
+    return document
+
+
+@router.post("/{document_id}/finalize", response_model=Dict)
+async def finalize_document(
+    document_id: int,
+    db: Session = Depends(get_db)
+):
+    """Finalize document - trigger agentic workflow if needed - status: verified -> processed"""
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    if document.status != "verified":
+        raise HTTPException(status_code=400, detail=f"Document must be verified before finalizing. Current status: {document.status}")
+    
+    # For invoices with PO references, trigger matching and potentially agentic workflow
+    if document.document_type == "invoice":
+        po_number = document.type_specific_data.get('po_number') if document.type_specific_data else None
         
-        # If there are exceptions, trigger agent resolution
-        if matching_result and matching_result.status in ["exception", "needs_review"]:
+        if po_number:
             # Import here to avoid circular dependency
-            from app.routers.agents import run_agent_workflow
-            import uuid
-            task_id = str(uuid.uuid4())
-            # Note: We need to create a new db session for background task
-            # For MVP, we'll trigger via API call instead
-            logger.info(f"Invoice {invoice.id} has exceptions. Agent resolution should be triggered via /api/agents/resolve")
-    except Exception as e:
-        logger.warning(f"Matching failed for invoice {invoice.id}: {str(e)}")
+            from app.models.purchase_order import PurchaseOrder
+            po = db.query(PurchaseOrder).filter(PurchaseOrder.po_number == po_number).first()
+            
+            if po:
+                # Run matching (this would create an Invoice record and match it)
+                # For now, we'll just mark as processed
+                # In a full implementation, this would create the Invoice and trigger matching
+                logger.info(f"Invoice document {document_id} references PO {po_number}, matching will be handled separately")
     
-    logger.info(f"Invoice saved: ID={invoice.id}, Number={invoice.invoice_number}")
-    
-    return {
-        "success": True,
-        "document_type": "invoice",
-        "id": invoice.id,
-        "reference_number": invoice.invoice_number,
-        "matching_status": matching_result.status if matching_result else None
-    }
-
-
-async def _save_po(document: Document, data, db: Session):
-    """Save document as a Purchase Order"""
-    
-    # Find or create vendor using intelligent matching
-    try:
-        vendor_id, vendor_match = await _find_or_create_vendor(
-            vendor_id=data.vendor_id,
-            vendor_name=data.vendor_name,
-            currency=data.currency,
-            db=db,
-            ocr_data=document.ocr_data,
-            file_content=None,  # PO save doesn't need vision verification
-            filename=document.filename
-        )
-        logger.info(f"PO vendor match: {vendor_match.get('match_type')} - {vendor_match.get('vendor_name')}")
-    except HTTPException:
-        raise HTTPException(status_code=400, detail="Vendor is required for purchase orders")
-    
-    # Parse date
-    order_date = None
-    if data.order_date:
-        try:
-            order_date = datetime.strptime(data.order_date, "%Y-%m-%d").date()
-        except ValueError:
-            logger.warning(f"Could not parse order date: {data.order_date}")
-    
-    # Check if PO number already exists
-    existing_po = db.query(PurchaseOrder).filter(PurchaseOrder.po_number == data.po_number).first()
-    
-    if existing_po:
-        # If PO exists and was created from the same document, update it
-        if existing_po.source_document_id is not None and existing_po.source_document_id == document.id:
-            logger.info(f"PO {data.po_number} already exists from this document. Updating existing PO.")
-            po = existing_po
-            # Update PO fields
-            po.vendor_id = vendor_id
-            po.total_amount = data.total_amount
-            po.currency = data.currency
-            po.order_date = order_date
-            po.requester_email = data.requester_email
-            # Delete existing line items
-            db.query(POLine).filter(POLine.po_id == po.id).delete()
-            db.flush()
-        else:
-            # PO exists from a different document (or was created before document system)
-            source_info = f"document {existing_po.source_document_id}" if existing_po.source_document_id else "legacy system"
-            raise HTTPException(
-                status_code=400, 
-                detail=f"PO number {data.po_number} already exists (created from {source_info})"
-            )
-    else:
-        # Create new PO
-        po = PurchaseOrder(
-            po_number=data.po_number,
-            vendor_id=vendor_id,
-            total_amount=data.total_amount,
-            currency=data.currency,
-            status="open",
-            order_date=order_date,
-            requester_email=data.requester_email,
-            source_document_id=document.id
-        )
-        db.add(po)
-        db.flush()
-    
-    # Create line items
-    for item in data.po_lines:
-        line = POLine(
-            po_id=po.id,
-            line_no=item.line_no,
-            sku=item.sku,
-            description=item.description,
-            quantity=item.quantity,
-            unit_price=item.unit_price
-        )
-        db.add(line)
-    
-    # Update document
-    document.processed_id = po.id
+    # Update status to processed
+    document.status = "processed"
+    document.processed_at = datetime.now()
     db.commit()
     
-    logger.info(f"PO saved: ID={po.id}, Number={po.po_number}")
-    
+    logger.info(f"Document {document_id} finalized, status: processed")
     return {
         "success": True,
-        "document_type": "po",
-        "id": po.id,
-        "reference_number": po.po_number
+        "document_id": document_id,
+        "status": "processed",
+        "message": "Document finalized successfully"
     }
 
 
 @router.delete("/{document_id}")
 def delete_document(document_id: int, db: Session = Depends(get_db)):
-    """Delete a document from the queue"""
+    """Delete a document"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if document.processed_id:
+    if document.status == "processed":
         raise HTTPException(
             status_code=400, 
-            detail="Cannot delete document that has been processed. Delete the invoice/PO first."
+            detail="Cannot delete processed document"
         )
     
     db.delete(document)
@@ -659,50 +447,29 @@ def delete_document(document_id: int, db: Session = Depends(get_db)):
 
 @router.get("/processed/all", response_model=List[ProcessedDocumentResponse])
 def list_processed_documents(
-    document_type: Optional[str] = Query(None, description="Filter by type: invoice, po"),
+    document_type: Optional[str] = Query(None, description="Filter by type"),
     db: Session = Depends(get_db)
 ):
-    """List all processed invoices and POs in a unified view"""
+    """List all processed documents"""
+    query = db.query(Document).filter(Document.status == "processed")
+    
+    if document_type:
+        query = query.filter(Document.document_type == document_type)
+    
+    documents = query.order_by(Document.processed_at.desc()).all()
+    
     results = []
-    
-    # Get invoices
-    if not document_type or document_type == "invoice":
-        invoices = db.query(Invoice).order_by(Invoice.created_at.desc()).all()
-        for inv in invoices:
-            vendor_name = inv.vendor.name if inv.vendor else None
-            results.append(ProcessedDocumentResponse(
-                id=inv.id,
-                document_type="invoice",
-                reference_number=inv.invoice_number,
-                vendor_name=vendor_name,
-                total_amount=inv.total_amount,
-                currency=inv.currency,
-                status=inv.status,
-                date=inv.invoice_date.isoformat() if inv.invoice_date else None,
-                source_document_id=inv.source_document_id,
-                created_at=inv.created_at
-            ))
-    
-    # Get POs
-    if not document_type or document_type == "po":
-        pos = db.query(PurchaseOrder).order_by(PurchaseOrder.created_at.desc()).all()
-        for po in pos:
-            vendor_name = po.vendor.name if po.vendor else None
-            results.append(ProcessedDocumentResponse(
-                id=po.id,
-                document_type="po",
-                reference_number=po.po_number,
-                vendor_name=vendor_name,
-                total_amount=po.total_amount,
-                currency=po.currency,
-                status=po.status,
-                date=po.order_date.isoformat() if po.order_date else None,
-                source_document_id=po.source_document_id,
-                created_at=po.created_at
-            ))
-    
-    # Sort by created_at descending
-    results.sort(key=lambda x: x.created_at, reverse=True)
+    for doc in documents:
+        results.append(ProcessedDocumentResponse(
+            id=doc.id,
+            document_type=doc.document_type,
+            document_number=doc.document_number or "",
+            vendor_name=doc.vendor_name,
+            total_amount=doc.total_amount,
+            currency=doc.currency,
+            status=doc.status,
+            document_date=doc.document_date,
+            created_at=doc.created_at
+        ))
     
     return results
-

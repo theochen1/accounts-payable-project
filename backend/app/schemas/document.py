@@ -1,21 +1,105 @@
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List, Literal
+from datetime import datetime, date
 from decimal import Decimal
 
 
-class DocumentResponse(BaseModel):
-    """Response schema for document in the queue"""
-    id: int
+# Base line item schema
+class LineItemBase(BaseModel):
+    """Base line item schema"""
+    line_no: int
+    sku: Optional[str] = None
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+
+
+# Type-specific data schemas
+class InvoiceTypeData(BaseModel):
+    """Type-specific data for invoices"""
+    po_number: Optional[str] = None
+    payment_terms: Optional[str] = None
+    due_date: Optional[date] = None
+    tax_amount: Optional[Decimal] = None
+
+
+class PurchaseOrderTypeData(BaseModel):
+    """Type-specific data for purchase orders"""
+    requester_name: Optional[str] = None
+    requester_email: Optional[str] = None
+    ship_to_address: Optional[str] = None
+    order_date: Optional[date] = None
+
+
+class ReceiptTypeData(BaseModel):
+    """Type-specific data for receipts"""
+    merchant_name: Optional[str] = None
+    payment_method: Optional[str] = None
+    transaction_id: Optional[str] = None
+
+
+# Document request/response schemas
+class DocumentBase(BaseModel):
+    """Base document schema"""
+    document_type: Literal["invoice", "purchase_order", "receipt"]
+    vendor_name: Optional[str] = None
+    document_number: Optional[str] = None
+    document_date: Optional[date] = None
+    total_amount: Optional[Decimal] = None
+    currency: str = "USD"
+    line_items: List[LineItemBase] = []
+
+
+class DocumentCreate(BaseModel):
+    """Schema for creating a document (upload)"""
     filename: str
-    storage_path: str
-    document_type: Optional[str] = None  # 'invoice' | 'po' | null
-    status: str  # pending, processing, processed, error
+    file_path: str
+
+
+class DocumentClassify(BaseModel):
+    """Schema for classifying a document"""
+    document_type: Literal["invoice", "purchase_order", "receipt"]
+
+
+class DocumentVerify(BaseModel):
+    """Schema for verifying/submitting document data"""
+    vendor_name: Optional[str] = None
+    vendor_id: Optional[int] = None
+    document_number: str
+    document_date: Optional[date] = None
+    total_amount: Optional[Decimal] = None
+    currency: str = "USD"
+    line_items: List[LineItemBase] = []
+    
+    # Type-specific fields (only one should be populated based on document_type)
+    invoice_data: Optional[InvoiceTypeData] = None
+    po_data: Optional[PurchaseOrderTypeData] = None
+    receipt_data: Optional[ReceiptTypeData] = None
+
+
+class DocumentResponse(BaseModel):
+    """Full document response schema"""
+    id: int
+    document_type: str
+    status: str
+    vendor_name: Optional[str] = None
+    vendor_id: Optional[int] = None
+    document_number: Optional[str] = None
+    document_date: Optional[date] = None
+    total_amount: Optional[Decimal] = None
+    currency: str = "USD"
+    type_specific_data: Optional[Dict[str, Any]] = None
+    line_items: Optional[List[Dict[str, Any]]] = None
+    filename: str
+    file_path: str
+    raw_ocr: Optional[Dict[str, Any]] = None
+    extraction_source: Optional[str] = None
+    vendor_match: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
-    ocr_data: Optional[Dict[str, Any]] = None
-    processed_id: Optional[int] = None
+    uploaded_at: datetime
+    processed_at: Optional[datetime] = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -27,17 +111,15 @@ class DocumentListResponse(BaseModel):
     filename: str
     document_type: Optional[str] = None
     status: str
+    vendor_name: Optional[str] = None
+    document_number: Optional[str] = None
+    total_amount: Optional[Decimal] = None
+    currency: str = "USD"
     error_message: Optional[str] = None
-    processed_id: Optional[int] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
-
-
-class DocumentUpdateType(BaseModel):
-    """Request schema for setting document type"""
-    document_type: str  # 'invoice' | 'po'
 
 
 class DocumentOCRResult(BaseModel):
@@ -48,68 +130,17 @@ class DocumentOCRResult(BaseModel):
     error_message: Optional[str] = None
 
 
-# Schemas for saving processed documents
-
-class InvoiceLineCreate(BaseModel):
-    """Line item for invoice"""
-    line_no: int = 0
-    sku: Optional[str] = None
-    description: str
-    quantity: Decimal
-    unit_price: Decimal
-
-
-class InvoiceSaveData(BaseModel):
-    """Data for saving a processed invoice"""
-    invoice_number: str
-    vendor_name: Optional[str] = None
-    vendor_id: Optional[int] = None
-    po_number: Optional[str] = None
-    invoice_date: Optional[str] = None  # YYYY-MM-DD format
-    total_amount: Optional[Decimal] = None
-    currency: str = "USD"
-    line_items: List[InvoiceLineCreate] = []
-
-
-class POLineCreate(BaseModel):
-    """Line item for purchase order"""
-    line_no: int = 0
-    sku: Optional[str] = None
-    description: str
-    quantity: Decimal
-    unit_price: Decimal
-
-
-class POSaveData(BaseModel):
-    """Data for saving a processed purchase order"""
-    po_number: str
-    vendor_name: Optional[str] = None
-    vendor_id: Optional[int] = None
-    order_date: Optional[str] = None  # YYYY-MM-DD format
-    total_amount: Decimal
-    currency: str = "USD"
-    requester_email: Optional[str] = None
-    po_lines: List[POLineCreate] = []
-
-
-class DocumentSaveRequest(BaseModel):
-    """Request schema for saving a document as Invoice or PO"""
-    invoice_data: Optional[InvoiceSaveData] = None
-    po_data: Optional[POSaveData] = None
-
-
-# Processed documents combined view
-
 class ProcessedDocumentResponse(BaseModel):
-    """Combined response for processed invoices and POs"""
+    """Response for processed documents"""
     id: int
-    document_type: str  # 'invoice' | 'po'
-    reference_number: str  # invoice_number or po_number
+    document_type: str
+    document_number: str
     vendor_name: Optional[str] = None
     total_amount: Optional[Decimal] = None
     currency: str
     status: str
-    date: Optional[str] = None  # invoice_date or order_date
-    source_document_id: Optional[int] = None
+    document_date: Optional[date] = None
     created_at: datetime
 
+    class Config:
+        from_attributes = True

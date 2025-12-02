@@ -45,6 +45,7 @@ class ExtractionResult:
     confidence: float = 0.0
     raw_response: Optional[str] = None
     error: Optional[str] = None
+    raw_data: Optional[Dict] = None  # Preserve all extracted fields for type-specific data
 
 
 @dataclass
@@ -120,9 +121,14 @@ class OCRAgentService:
             except Exception as e:
                 logger.error(f"Azure DI init failed: {e}")
     
-    async def process_file(self, file_content: bytes, filename: str) -> Dict:
+    async def process_file(self, file_content: bytes, filename: str, document_type: str = "invoice") -> Dict:
         """
         Main entry point - Process document with ensemble OCR agent
+        
+        Args:
+            file_content: Binary file content
+            filename: Original filename
+            document_type: 'invoice', 'purchase_order', or 'receipt'
         
         Flow:
         1. Extract with multiple models in parallel
@@ -131,10 +137,10 @@ class OCRAgentService:
         4. Targeted re-extraction if needed
         5. Return best result with confidence
         """
-        logger.info(f"OCR Agent processing {filename} with ensemble approach")
+        logger.info(f"OCR Agent processing {filename} (type: {document_type}) with ensemble approach")
         
         # Step 1: Multi-model extraction in parallel
-        extractions = await self._parallel_extraction(file_content, filename)
+        extractions = await self._parallel_extraction(file_content, filename, document_type)
         
         if not extractions:
             logger.error("All extraction models failed")
@@ -155,7 +161,7 @@ class OCRAgentService:
         
         # Step 3: Apply reasoning to reconcile and verify
         best_result = await self._reasoning_reconciliation(
-            file_content, filename, validated_results
+            file_content, filename, validated_results, document_type
         )
         
         # Step 4: Check for total mismatch and attempt correction
@@ -177,7 +183,7 @@ class OCRAgentService:
         if best_result.get('needs_verification', False):
             logger.info("Running final verification pass with total constraint...")
             best_result = await self._verification_pass(
-                file_content, filename, best_result
+                file_content, filename, best_result, document_type
             )
         
         # Clean up and return
@@ -206,7 +212,8 @@ class OCRAgentService:
     async def _parallel_extraction(
         self, 
         file_content: bytes, 
-        filename: str
+        filename: str,
+        document_type: str = "invoice"
     ) -> List[ExtractionResult]:
         """Run extraction with all available models in parallel"""
         
@@ -214,15 +221,15 @@ class OCRAgentService:
         
         # Gemini extraction
         if self.gemini_model:
-            tasks.append(self._extract_gemini(file_content, filename))
+            tasks.append(self._extract_gemini(file_content, filename, document_type))
         
         # GPT-4o extraction
         if self.openai_client:
-            tasks.append(self._extract_gpt4o(file_content, filename))
+            tasks.append(self._extract_gpt4o(file_content, filename, document_type))
         
         # Azure DI extraction
         if self.azure_client:
-            tasks.append(self._extract_azure(file_content, filename))
+            tasks.append(self._extract_azure(file_content, filename, document_type))
         
         if not tasks:
             logger.error("No OCR models available")
@@ -241,35 +248,79 @@ class OCRAgentService:
         
         return extractions
     
-    async def _extract_gemini(
-        self, 
-        file_content: bytes, 
-        filename: str
-    ) -> Optional[ExtractionResult]:
-        """Extract using Gemini with detailed column-aware prompt"""
+    def _get_extraction_prompt(self, document_type: str) -> str:
+        """Get type-specific extraction prompt"""
         
-        if not self.gemini_model:
-            return None
+        if document_type == "purchase_order":
+            return """Analyze this PURCHASE ORDER document VERY CAREFULLY.
+
+CRITICAL: Pay close attention to the TABLE COLUMNS. Common column headers include:
+- "Date" - when the line item was ordered
+- "Item Description" / "Description" - product name or SKU
+- "Price" / "Unit Price" - cost PER UNIT (usually a small number like $1.00, $2.50)
+- "Qty" / "Quantity" - how many units (can be large like 45,000)
+- "Total" / "Amount" - line total = Quantity × Unit Price
+
+⚠️ COMMON ERROR TO AVOID:
+- If you see "45,000.00" in both Qty and Total columns, the UNIT PRICE is likely $1.00
+- Do NOT confuse the "Total" column with "Unit Price"
+- The line total should ALWAYS equal quantity × unit_price (approximately)
+
+VERIFY YOUR MATH: For each line item, check that:
+  quantity × unit_price ≈ line_total (from the document)
+
+Extract and return JSON:
+{
+    "vendor_name": "Company/Vendor name (supplier)",
+    "po_number": "Purchase order number",
+    "order_date": "YYYY-MM-DD format",
+    "total_amount": number (grand total),
+    "currency": "USD/EUR/etc",
+    "requester_email": "Email address of person requesting the PO",
+    "requester_name": "Name of person requesting the PO",
+    "ship_to_address": "Shipping address if present",
+    "line_items": [
+        {
+            "line_no": 1,
+            "description": "Item description",
+            "quantity": number (how many units),
+            "unit_price": number (price PER SINGLE UNIT),
+            "line_total": number (from document, should ≈ qty × unit_price)
+        }
+    ],
+    "table_columns_found": ["Date", "Description", "Price", "Qty", "Total"],
+    "extraction_notes": "Any uncertainty about column interpretation"
+}
+
+Return ONLY the JSON, no markdown."""
         
-        try:
-            import google.generativeai as genai
-            
-            # Convert PDF to image if needed (Gemini vision works better with images)
-            if self._is_pdf(filename):
-                try:
-                    image_content, mime_type = self._convert_pdf_to_image(file_content)
-                    base64_image = base64.b64encode(image_content).decode('utf-8')
-                    logger.info("Converted PDF to image for Gemini extraction")
-                except Exception as e:
-                    logger.warning(f"PDF conversion failed for Gemini: {e}, trying raw PDF")
-                    base64_image = base64.b64encode(file_content).decode('utf-8')
-                    mime_type = 'application/pdf'
-            else:
-                base64_image = base64.b64encode(file_content).decode('utf-8')
-                mime_type = self._get_mime_type(filename)
-            
-            # Column-aware extraction prompt
-            prompt = """Analyze this invoice document VERY CAREFULLY.
+        elif document_type == "receipt":
+            return """Analyze this RECEIPT document VERY CAREFULLY.
+
+Extract and return JSON:
+{
+    "merchant_name": "Store/merchant name",
+    "receipt_number": "Receipt number or transaction ID",
+    "transaction_date": "YYYY-MM-DD format",
+    "total_amount": number (total paid),
+    "currency": "USD/EUR/etc",
+    "payment_method": "Cash/Credit Card/Debit/etc",
+    "transaction_id": "Transaction ID if present",
+    "line_items": [
+        {
+            "line_no": 1,
+            "description": "Item description",
+            "quantity": number,
+            "unit_price": number,
+            "line_total": number
+        }
+    ]
+}
+
+Return ONLY the JSON, no markdown."""
+        
+        else:  # invoice (default)
+            return """Analyze this INVOICE document VERY CAREFULLY.
 
 CRITICAL: Pay close attention to the TABLE COLUMNS. Common column headers include:
 - "Date" - when the line item was ordered/shipped
@@ -294,6 +345,9 @@ Extract and return JSON:
     "invoice_date": "YYYY-MM-DD format",
     "total_amount": number (grand total),
     "currency": "USD/EUR/etc",
+    "tax_amount": number (tax if present),
+    "payment_terms": "Payment terms if present",
+    "due_date": "Due date if present (YYYY-MM-DD)",
     "line_items": [
         {
             "line_no": 1,
@@ -308,6 +362,37 @@ Extract and return JSON:
 }
 
 Return ONLY the JSON, no markdown."""
+    
+    async def _extract_gemini(
+        self, 
+        file_content: bytes, 
+        filename: str,
+        document_type: str = "invoice"
+    ) -> Optional[ExtractionResult]:
+        """Extract using Gemini with detailed column-aware prompt"""
+        
+        if not self.gemini_model:
+            return None
+        
+        try:
+            import google.generativeai as genai
+            
+            # Convert PDF to image if needed (Gemini vision works better with images)
+            if self._is_pdf(filename):
+                try:
+                    image_content, mime_type = self._convert_pdf_to_image(file_content)
+                    base64_image = base64.b64encode(image_content).decode('utf-8')
+                    logger.info("Converted PDF to image for Gemini extraction")
+                except Exception as e:
+                    logger.warning(f"PDF conversion failed for Gemini: {e}, trying raw PDF")
+                    base64_image = base64.b64encode(file_content).decode('utf-8')
+                    mime_type = 'application/pdf'
+            else:
+                base64_image = base64.b64encode(file_content).decode('utf-8')
+                mime_type = self._get_mime_type(filename)
+            
+            # Get type-specific prompt
+            prompt = self._get_extraction_prompt(document_type)
 
             image_part = {
                 "mime_type": mime_type,
@@ -334,7 +419,8 @@ Return ONLY the JSON, no markdown."""
     async def _extract_gpt4o(
         self, 
         file_content: bytes, 
-        filename: str
+        filename: str,
+        document_type: str = "invoice"
     ) -> Optional[ExtractionResult]:
         """Extract using GPT-4o with detailed column-aware prompt"""
         
@@ -355,49 +441,8 @@ Return ONLY the JSON, no markdown."""
                 base64_image = base64.b64encode(file_content).decode('utf-8')
                 mime_type = self._get_mime_type(filename)
             
-            # Column-aware extraction prompt (slightly different wording for diversity)
-            prompt = """You are an expert invoice data extractor. Analyze this document.
-
-IMPORTANT - TABLE COLUMN IDENTIFICATION:
-Look at the table header row carefully. Typical columns are:
-- Date: When item was ordered
-- Item/Description: What was ordered  
-- Price/Unit Price: Cost for ONE unit (typically small, like $1.00)
-- Qty/Quantity: Number of units ordered (can be large, like 45,000 lbs)
-- Total/Amount: Extended price = Qty × Unit Price
-
-🚨 CRITICAL MATH CHECK:
-If you extract quantity=45000 and unit_price=45000, that would be a $2 BILLION line item!
-This is almost certainly WRONG. Re-examine the columns.
-
-More likely: quantity=45000, unit_price=1.00, total=45000.00
-
-For EACH line item, mentally verify: quantity × unit_price ≈ line_total
-
-Extract to JSON:
-{
-    "vendor_name": "Issuing company (letterhead/logo at top, NOT 'Bill To')",
-    "invoice_number": "string",
-    "po_number": "string or null",
-    "invoice_date": "YYYY-MM-DD",
-    "total_amount": number,
-    "currency": "USD",
-    "line_items": [
-        {
-            "line_no": 1,
-            "description": "string",
-            "quantity": number,
-            "unit_price": number (per unit),
-            "line_total": number (from document)
-        }
-    ],
-    "column_interpretation": {
-        "column_headers_seen": ["list", "of", "headers"],
-        "confidence": "high/medium/low"
-    }
-}
-
-Return ONLY JSON, no code blocks or explanation."""
+            # Get type-specific prompt
+            prompt = self._get_extraction_prompt(document_type)
 
             response = await self.openai_client.chat.completions.create(
                 model="gpt-4o",
@@ -433,7 +478,8 @@ Return ONLY JSON, no code blocks or explanation."""
     async def _extract_azure(
         self, 
         file_content: bytes, 
-        filename: str
+        filename: str,
+        document_type: str = "invoice"
     ) -> Optional[ExtractionResult]:
         """Extract using Azure Document Intelligence"""
         
@@ -641,7 +687,8 @@ Return ONLY JSON, no code blocks or explanation."""
         self,
         file_content: bytes,
         filename: str,
-        validated_results: List[Tuple[ExtractionResult, List[ValidationIssue]]]
+        validated_results: List[Tuple[ExtractionResult, List[ValidationIssue]]],
+        document_type: str = "invoice"
     ) -> Dict:
         """
         Use reasoning to reconcile multiple extraction results
@@ -996,7 +1043,8 @@ Return ONLY JSON."""
         self,
         file_content: bytes,
         filename: str,
-        current_result: Dict
+        current_result: Dict,
+        document_type: str = "invoice"
     ) -> Dict:
         """
         Final verification pass - explicitly verify suspicious values with total constraint
@@ -1155,35 +1203,79 @@ Return ONLY JSON."""
         
         return ExtractionResult(
             model_name=model_name,
-            vendor_name=data.get('vendor_name'),
-            invoice_number=data.get('invoice_number'),
+            vendor_name=data.get('vendor_name') or data.get('merchant_name'),
+            invoice_number=data.get('invoice_number') or data.get('po_number') or data.get('receipt_number'),
             po_number=data.get('po_number'),
-            invoice_date=data.get('invoice_date'),
+            invoice_date=data.get('invoice_date') or data.get('order_date') or data.get('transaction_date'),
             total_amount=data.get('total_amount'),
             currency=data.get('currency', 'USD'),
             line_items=line_items,
             confidence=data.get('confidence', {}).get('overall', 0.8) if isinstance(data.get('confidence'), dict) else 0.8,
-            raw_response=raw_response
+            raw_response=raw_response,
+            raw_data=data  # Preserve all fields for type-specific extraction
         )
     
     def _extraction_to_dict(self, extraction: ExtractionResult) -> Dict:
         """Convert ExtractionResult to dict for response"""
         
+        # Start with common fields
         result = {
             'vendor_name': extraction.vendor_name,
-            'invoice_number': extraction.invoice_number,
-            'po_number': extraction.po_number,
-            'invoice_date': extraction.invoice_date,
             'total_amount': extraction.total_amount,
             'currency': extraction.currency,
             'line_items': extraction.line_items
         }
         
+        # Add document-type-specific fields from raw_data if available
+        if extraction.raw_data:
+            # For invoices
+            if 'invoice_number' in extraction.raw_data:
+                result['invoice_number'] = extraction.raw_data.get('invoice_number')
+            if 'invoice_date' in extraction.raw_data:
+                result['invoice_date'] = extraction.raw_data.get('invoice_date')
+            if 'po_number' in extraction.raw_data:
+                result['po_number'] = extraction.raw_data.get('po_number')
+            if 'tax_amount' in extraction.raw_data:
+                result['tax_amount'] = extraction.raw_data.get('tax_amount')
+            if 'payment_terms' in extraction.raw_data:
+                result['payment_terms'] = extraction.raw_data.get('payment_terms')
+            if 'due_date' in extraction.raw_data:
+                result['due_date'] = extraction.raw_data.get('due_date')
+            
+            # For purchase orders
+            if 'po_number' in extraction.raw_data:
+                result['po_number'] = extraction.raw_data.get('po_number')
+            if 'order_date' in extraction.raw_data:
+                result['order_date'] = extraction.raw_data.get('order_date')
+            if 'requester_email' in extraction.raw_data:
+                result['requester_email'] = extraction.raw_data.get('requester_email')
+            if 'requester_name' in extraction.raw_data:
+                result['requester_name'] = extraction.raw_data.get('requester_name')
+            if 'ship_to_address' in extraction.raw_data:
+                result['ship_to_address'] = extraction.raw_data.get('ship_to_address')
+            
+            # For receipts
+            if 'receipt_number' in extraction.raw_data:
+                result['receipt_number'] = extraction.raw_data.get('receipt_number')
+            if 'transaction_date' in extraction.raw_data:
+                result['transaction_date'] = extraction.raw_data.get('transaction_date')
+            if 'merchant_name' in extraction.raw_data:
+                result['merchant_name'] = extraction.raw_data.get('merchant_name')
+            if 'payment_method' in extraction.raw_data:
+                result['payment_method'] = extraction.raw_data.get('payment_method')
+            if 'transaction_id' in extraction.raw_data:
+                result['transaction_id'] = extraction.raw_data.get('transaction_id')
+        else:
+            # Fallback to ExtractionResult fields
+            result['invoice_number'] = extraction.invoice_number
+            result['po_number'] = extraction.po_number
+            result['invoice_date'] = extraction.invoice_date
+        
         # Log extraction result for debugging
         logger.info(f"[{extraction.model_name}] Extracted: vendor={extraction.vendor_name}, "
-                   f"invoice_number={extraction.invoice_number}, po_number={extraction.po_number}, "
-                   f"invoice_date={extraction.invoice_date}, total={extraction.total_amount}, "
-                   f"line_items={len(extraction.line_items)}")
+                   f"document_number={result.get('invoice_number') or result.get('po_number') or result.get('receipt_number')}, "
+                   f"date={result.get('invoice_date') or result.get('order_date') or result.get('transaction_date')}, "
+                   f"total={extraction.total_amount}, line_items={len(extraction.line_items)}")
         
         return result
     
