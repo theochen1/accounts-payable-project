@@ -51,10 +51,38 @@ export default function VerifyPage() {
 
     setSaving(true);
     try {
-      await documentApi.save(document.id, {
-        invoice_data: document.document_type === 'invoice' ? (data as InvoiceSaveData) : undefined,
-        po_data: document.document_type === 'purchase_order' ? (data as POSaveData) : undefined,
-      });
+      // Format data according to DocumentVerify schema
+      const isInvoice = document.document_type === 'invoice';
+      
+      if (isInvoice) {
+        const invoiceData = data as InvoiceSaveData;
+        await documentApi.save(document.id, {
+          vendor_name: invoiceData.vendor_name,
+          vendor_id: invoiceData.vendor_id,
+          document_number: invoiceData.invoice_number,
+          document_date: invoiceData.invoice_date,
+          total_amount: invoiceData.total_amount,
+          currency: invoiceData.currency || 'USD',
+          line_items: invoiceData.line_items || [],
+          invoice_data: {
+            po_number: invoiceData.po_number,
+          },
+        });
+      } else {
+        const poData = data as POSaveData;
+        await documentApi.save(document.id, {
+          vendor_name: poData.vendor_name,
+          vendor_id: poData.vendor_id,
+          document_number: poData.po_number,
+          document_date: poData.order_date,
+          total_amount: poData.total_amount,
+          currency: poData.currency || 'USD',
+          line_items: poData.po_lines || [],
+          po_data: {
+            requester_email: poData.requester_email,
+          },
+        });
+      }
 
       toast({
         title: 'Document saved',

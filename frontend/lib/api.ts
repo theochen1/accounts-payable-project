@@ -340,7 +340,7 @@ export const documentApi = {
   },
 
   save: async (id: number, data: { invoice_data?: InvoiceSaveData; po_data?: POSaveData }): Promise<{ success: boolean; document_type: string; id: number; reference_number: string }> => {
-    const response = await api.post(`/api/documents/${id}/save`, data, {
+    const response = await api.post(`/api/documents/${id}/verify`, data, {
       headers: {
         'Content-Type': 'application/json',
       },
