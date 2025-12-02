@@ -2,6 +2,7 @@
 Documents Router - Unified document upload and processing queue
 """
 import os
+import json
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -200,7 +201,72 @@ async def process_document(document_id: int, db: Session = Depends(get_db)):
         # Process with OCR (uses configured provider: azure, hybrid, gemini, or gpt4o)
         active_ocr_service = get_ocr_service()
         logger.info(f"Starting OCR for document {document_id} ({document.filename}) using provider: {settings.ocr_provider}")
-        ocr_data = await active_ocr_service.process_file(file_content, document.filename)
+        logger.info(f"Document type: {document.document_type}")
+        
+        # Pass document type to OCR service if it supports it
+        if hasattr(active_ocr_service, 'process_file'):
+            # Check if process_file accepts document_type parameter
+            import inspect
+            sig = inspect.signature(active_ocr_service.process_file)
+            if 'document_type' in sig.parameters:
+                ocr_data = await active_ocr_service.process_file(file_content, document.filename, document_type=document.document_type)
+            else:
+                ocr_data = await active_ocr_service.process_file(file_content, document.filename)
+        else:
+            ocr_data = await active_ocr_service.process_file(file_content, document.filename)
+        
+        # Log full OCR output for debugging
+        try:
+            logger.info("=" * 80)
+            logger.info(f"OCR EXTRACTION RESULTS for document {document_id} ({document.filename})")
+            logger.info("=" * 80)
+            
+            # Log all keys in OCR data
+            logger.info(f"OCR data keys: {list(ocr_data.keys())}")
+            
+            # Log full OCR data as JSON (with error handling)
+            try:
+                ocr_json = json.dumps(ocr_data, indent=2, default=str)
+                # Split into chunks if too long (some log systems have limits)
+                if len(ocr_json) > 5000:
+                    logger.info("Full OCR data (first 5000 chars):")
+                    logger.info(ocr_json[:5000])
+                    logger.info("... (truncated)")
+                else:
+                    logger.info(f"Full OCR data (JSON):\n{ocr_json}")
+            except Exception as e:
+                logger.warning(f"Could not serialize OCR data to JSON: {e}")
+                logger.info(f"OCR data (repr): {repr(ocr_data)}")
+            
+            logger.info("-" * 80)
+            
+            # Log specific fields of interest
+            if document.document_type == 'po':
+                logger.info("PO-SPECIFIC FIELDS:")
+                logger.info(f"  PO Number: {ocr_data.get('po_number', 'NOT FOUND')}")
+                logger.info(f"  Order Date: {ocr_data.get('order_date', 'NOT FOUND')}")
+                logger.info(f"  Requester Email: {ocr_data.get('requester_email', 'NOT FOUND')}")
+                logger.info(f"  Vendor Name: {ocr_data.get('vendor_name', 'NOT FOUND')}")
+                logger.info(f"  Total Amount: {ocr_data.get('total_amount', 'NOT FOUND')}")
+            else:
+                logger.info("INVOICE-SPECIFIC FIELDS:")
+                logger.info(f"  Invoice Number: {ocr_data.get('invoice_number', 'NOT FOUND')}")
+                logger.info(f"  PO Number: {ocr_data.get('po_number', 'NOT FOUND')}")
+                logger.info(f"  Invoice Date: {ocr_data.get('invoice_date', 'NOT FOUND')}")
+                logger.info(f"  Vendor Name: {ocr_data.get('vendor_name', 'NOT FOUND')}")
+                logger.info(f"  Total Amount: {ocr_data.get('total_amount', 'NOT FOUND')}")
+            
+            logger.info(f"Line Items Count: {len(ocr_data.get('line_items', []))}")
+            if ocr_data.get('line_items'):
+                try:
+                    first_item = json.dumps(ocr_data['line_items'][0], indent=2, default=str)
+                    logger.info(f"First line item:\n{first_item}")
+                except Exception as e:
+                    logger.info(f"First line item (repr): {repr(ocr_data['line_items'][0])}")
+            
+            logger.info("=" * 80)
+        except Exception as e:
+            logger.error(f"Error logging OCR results: {e}", exc_info=True)
         
         # Match vendor against existing vendors using intelligent matching
         from app.services.vendor_matching_service import vendor_matching_service

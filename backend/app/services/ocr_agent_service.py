@@ -187,6 +187,20 @@ class OCRAgentService:
         best_result.pop('_variance_percent', None)
         best_result['extraction_source'] = 'ocr_agent_ensemble'
         
+        # Log final extraction result
+        logger.info("=" * 80)
+        logger.info("OCR AGENT FINAL EXTRACTION RESULT")
+        logger.info("=" * 80)
+        logger.info(f"Vendor Name: {best_result.get('vendor_name', 'NOT FOUND')}")
+        logger.info(f"Invoice Number: {best_result.get('invoice_number', 'NOT FOUND')}")
+        logger.info(f"PO Number: {best_result.get('po_number', 'NOT FOUND')}")
+        logger.info(f"Invoice/Order Date: {best_result.get('invoice_date', 'NOT FOUND')}")
+        logger.info(f"Total Amount: {best_result.get('total_amount', 'NOT FOUND')}")
+        logger.info(f"Currency: {best_result.get('currency', 'NOT FOUND')}")
+        logger.info(f"Line Items: {len(best_result.get('line_items', []))}")
+        logger.info(f"Full result keys: {list(best_result.keys())}")
+        logger.info("=" * 80)
+        
         return best_result
     
     async def _parallel_extraction(
@@ -1155,7 +1169,7 @@ Return ONLY JSON."""
     def _extraction_to_dict(self, extraction: ExtractionResult) -> Dict:
         """Convert ExtractionResult to dict for response"""
         
-        return {
+        result = {
             'vendor_name': extraction.vendor_name,
             'invoice_number': extraction.invoice_number,
             'po_number': extraction.po_number,
@@ -1164,6 +1178,14 @@ Return ONLY JSON."""
             'currency': extraction.currency,
             'line_items': extraction.line_items
         }
+        
+        # Log extraction result for debugging
+        logger.info(f"[{extraction.model_name}] Extracted: vendor={extraction.vendor_name}, "
+                   f"invoice_number={extraction.invoice_number}, po_number={extraction.po_number}, "
+                   f"invoice_date={extraction.invoice_date}, total={extraction.total_amount}, "
+                   f"line_items={len(extraction.line_items)}")
+        
+        return result
     
     def _parse_json_response(self, content: str) -> Dict:
         """Parse JSON from LLM response"""
