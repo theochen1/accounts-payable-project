@@ -59,7 +59,7 @@ export default function DocumentCard({
             <div className="flex items-center gap-2 mt-4 flex-wrap">
               <Select
                 value={document.document_type || ''}
-                onValueChange={(value) => onTypeChange(document.id, value as 'invoice' | 'po')}
+                onValueChange={(value) => onTypeChange(document.id, value as 'invoice' | 'purchase_order' | 'receipt')}
                 disabled={document.status === 'ocr_processing' || document.status === 'processing' || isReady}
               >
                 <SelectTrigger className="w-[180px]">
