@@ -339,7 +339,32 @@ export const documentApi = {
     return response.data;
   },
 
-  save: async (id: number, data: { invoice_data?: InvoiceSaveData; po_data?: POSaveData }): Promise<{ success: boolean; document_type: string; id: number; reference_number: string }> => {
+  save: async (id: number, data: {
+    vendor_name?: string;
+    vendor_id?: number;
+    document_number: string;
+    document_date?: string;
+    total_amount?: number;
+    currency?: string;
+    line_items?: any[];
+    invoice_data?: {
+      po_number?: string;
+      payment_terms?: string;
+      due_date?: string;
+      tax_amount?: number;
+    };
+    po_data?: {
+      requester_name?: string;
+      requester_email?: string;
+      ship_to_address?: string;
+      order_date?: string;
+    };
+    receipt_data?: {
+      merchant_name?: string;
+      payment_method?: string;
+      transaction_id?: string;
+    };
+  }): Promise<Document> => {
     const response = await api.post(`/api/documents/${id}/verify`, data, {
       headers: {
         'Content-Type': 'application/json',

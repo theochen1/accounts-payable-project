@@ -64,9 +64,9 @@ export default function VerifyPage() {
           total_amount: invoiceData.total_amount,
           currency: invoiceData.currency || 'USD',
           line_items: invoiceData.line_items || [],
-          invoice_data: {
+          invoice_data: invoiceData.po_number ? {
             po_number: invoiceData.po_number,
-          },
+          } : undefined,
         });
       } else {
         const poData = data as POSaveData;
@@ -78,9 +78,9 @@ export default function VerifyPage() {
           total_amount: poData.total_amount,
           currency: poData.currency || 'USD',
           line_items: poData.po_lines || [],
-          po_data: {
+          po_data: poData.requester_email ? {
             requester_email: poData.requester_email,
-          },
+          } : undefined,
         });
       }
 

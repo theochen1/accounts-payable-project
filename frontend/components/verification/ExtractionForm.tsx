@@ -44,6 +44,9 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
   const isInvoice = document.document_type === 'invoice';
   const schema = isInvoice ? invoiceSchema : poSchema;
 
+  // Extract unified fields and type-specific data
+  const typeSpecificData = ocrData.type_specific_data || {};
+  
   const [vendors, setVendors] = useState<any[]>([]);
   const [lineItems, setLineItems] = useState(ocrData.line_items || []);
 
@@ -57,22 +60,24 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
     resolver: zodResolver(schema),
     defaultValues: isInvoice
       ? {
-          invoice_number: ocrData.invoice_number || '',
+          // For invoices: read from unified schema with fallbacks for backward compatibility
+          invoice_number: ocrData.document_number || ocrData.invoice_number || '',
+          invoice_date: ocrData.document_date || ocrData.invoice_date || '',
+          po_number: typeSpecificData.po_number || ocrData.po_number || '',
           vendor_name: ocrData.vendor_name || ocrData.vendor_match?.matched_vendor_name || '',
           vendor_id: ocrData.vendor_match?.matched_vendor_id || undefined,
-          po_number: ocrData.po_number || '',
-          invoice_date: ocrData.invoice_date || '',
           total_amount: ocrData.total_amount || undefined,
           currency: ocrData.currency || 'USD',
         }
       : {
-          po_number: ocrData.po_number || '',
+          // For POs: read from unified schema with fallbacks for backward compatibility
+          po_number: ocrData.document_number || ocrData.po_number || '',
+          order_date: ocrData.document_date || typeSpecificData.order_date || ocrData.order_date || '',
+          requester_email: typeSpecificData.requester_email || ocrData.requester_email || '',
           vendor_name: ocrData.vendor_name || ocrData.vendor_match?.matched_vendor_name || '',
           vendor_id: ocrData.vendor_match?.matched_vendor_id || undefined,
-          order_date: ocrData.order_date || '',
           total_amount: ocrData.total_amount || 0,
           currency: ocrData.currency || 'USD',
-          requester_email: ocrData.requester_email || '',
         },
   });
 
