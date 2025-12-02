@@ -117,8 +117,8 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
                   <Input {...register('invoice_number')} />
                   <ConfidenceIndicator confidence={ocrData.confidence?.invoice_number} />
                 </div>
-                {errors.invoice_number && (
-                  <p className="text-xs text-destructive">{errors.invoice_number.message as string}</p>
+                {isInvoice && (errors as any).invoice_number && (
+                  <p className="text-xs text-destructive">{(errors as any).invoice_number.message as string}</p>
                 )}
               </div>
 
@@ -180,8 +180,8 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
                   PO Number <span className="text-destructive">*</span>
                 </label>
                 <Input {...register('po_number')} />
-                {errors.po_number && (
-                  <p className="text-xs text-destructive">{errors.po_number.message as string}</p>
+                {!isInvoice && (errors as any).po_number && (
+                  <p className="text-xs text-destructive">{(errors as any).po_number.message as string}</p>
                 )}
               </div>
 
@@ -227,8 +227,8 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
                   step="0.01"
                   {...register('total_amount', { valueAsNumber: true })}
                 />
-                {errors.total_amount && (
-                  <p className="text-xs text-destructive">{errors.total_amount.message as string}</p>
+                {!isInvoice && (errors as any).total_amount && (
+                  <p className="text-xs text-destructive">{(errors as any).total_amount.message as string}</p>
                 )}
               </div>
 
