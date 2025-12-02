@@ -100,6 +100,7 @@ class DocumentResponse(BaseModel):
     processed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    ocr_data: Optional[Dict[str, Any]] = None  # Computed field for frontend compatibility
 
     class Config:
         from_attributes = True

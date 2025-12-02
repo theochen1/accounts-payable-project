@@ -138,7 +138,110 @@ def get_document(document_id: int, db: Session = Depends(get_db)):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    return document
+    
+    # Build ocr_data for frontend compatibility
+    ocr_data = _build_ocr_data_from_document(document)
+    
+    # Create response dict
+    response_dict = {
+        'id': document.id,
+        'document_type': document.document_type,
+        'status': document.status,
+        'vendor_name': document.vendor_name,
+        'vendor_id': document.vendor_id,
+        'document_number': document.document_number,
+        'document_date': document.document_date,
+        'total_amount': document.total_amount,
+        'currency': document.currency,
+        'type_specific_data': document.type_specific_data,
+        'line_items': document.line_items,
+        'filename': document.filename,
+        'file_path': document.file_path,
+        'raw_ocr': document.raw_ocr,
+        'extraction_source': document.extraction_source,
+        'vendor_match': document.vendor_match,
+        'error_message': document.error_message,
+        'uploaded_at': document.uploaded_at,
+        'processed_at': document.processed_at,
+        'created_at': document.created_at,
+        'updated_at': document.updated_at,
+        'ocr_data': ocr_data,
+    }
+    
+    return DocumentResponse(**response_dict)
+
+
+def _build_ocr_data_from_document(document: Document) -> Dict:
+    """Build ocr_data dict from document fields for frontend compatibility"""
+    ocr_data = {}
+    
+    if document.document_type == 'invoice':
+        ocr_data = {
+            'invoice_number': document.document_number,
+            'invoice_date': document.document_date.isoformat() if document.document_date else None,
+            'po_number': document.type_specific_data.get('po_number') if document.type_specific_data else None,
+            'vendor_name': document.vendor_name,
+            'total_amount': float(document.total_amount) if document.total_amount else None,
+            'currency': document.currency,
+            'line_items': document.line_items or [],
+            'vendor_match': document.vendor_match,
+        }
+        if document.type_specific_data:
+            if 'tax_amount' in document.type_specific_data:
+                ocr_data['tax_amount'] = float(document.type_specific_data['tax_amount']) if isinstance(document.type_specific_data['tax_amount'], (Decimal, int, float)) else document.type_specific_data['tax_amount']
+            if 'payment_terms' in document.type_specific_data:
+                ocr_data['payment_terms'] = document.type_specific_data['payment_terms']
+            if 'due_date' in document.type_specific_data:
+                due_date = document.type_specific_data['due_date']
+                ocr_data['due_date'] = due_date.isoformat() if hasattr(due_date, 'isoformat') else due_date
+    elif document.document_type == 'purchase_order':
+        ocr_data = {
+            'po_number': document.document_number,
+            'order_date': None,
+            'requester_email': None,
+            'requester_name': None,
+            'ship_to_address': None,
+            'vendor_name': document.vendor_name,
+            'total_amount': float(document.total_amount) if document.total_amount else None,
+            'currency': document.currency,
+            'line_items': document.line_items or [],
+            'vendor_match': document.vendor_match,
+        }
+        if document.type_specific_data:
+            if 'order_date' in document.type_specific_data:
+                order_date = document.type_specific_data['order_date']
+                ocr_data['order_date'] = order_date.isoformat() if hasattr(order_date, 'isoformat') else order_date
+            ocr_data['requester_email'] = document.type_specific_data.get('requester_email')
+            ocr_data['requester_name'] = document.type_specific_data.get('requester_name')
+            ocr_data['ship_to_address'] = document.type_specific_data.get('ship_to_address')
+        # Fallback to document_date if order_date not in type_specific_data
+        if not ocr_data['order_date'] and document.document_date:
+            ocr_data['order_date'] = document.document_date.isoformat()
+    elif document.document_type == 'receipt':
+        ocr_data = {
+            'receipt_number': document.document_number,
+            'transaction_date': document.document_date.isoformat() if document.document_date else None,
+            'merchant_name': document.vendor_name,
+            'total_amount': float(document.total_amount) if document.total_amount else None,
+            'currency': document.currency,
+            'payment_method': document.type_specific_data.get('payment_method') if document.type_specific_data else None,
+            'transaction_id': document.type_specific_data.get('transaction_id') if document.type_specific_data else None,
+            'line_items': document.line_items or [],
+        }
+    else:
+        # Generic fallback
+        ocr_data = {
+            'document_number': document.document_number,
+            'document_date': document.document_date.isoformat() if document.document_date else None,
+            'vendor_name': document.vendor_name,
+            'total_amount': float(document.total_amount) if document.total_amount else None,
+            'currency': document.currency,
+            'line_items': document.line_items or [],
+            'vendor_match': document.vendor_match,
+            'type_specific_data': document.type_specific_data,
+        }
+    
+    return ocr_data
 
 
 @router.get("/{document_id}/file")
@@ -247,8 +350,13 @@ async def process_ocr(document_id: int, db: Session = Depends(get_db)):
             ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         
         # Normalize OCR output using FieldMapper
-        normalized_data = field_mapper.normalize(ocr_data, document.document_type)
-        unified_data = field_mapper.to_unified_document_format(normalized_data, document.document_type)
+        # First, ensure document_type is passed correctly (handle 'po' -> 'purchase_order' mapping)
+        doc_type = document.document_type
+        if doc_type == 'po':
+            doc_type = 'purchase_order'
+        
+        normalized_data = field_mapper.normalize(ocr_data, doc_type)
+        unified_data = field_mapper.to_unified_document_format(normalized_data, doc_type)
         
         # Log OCR results
         try:

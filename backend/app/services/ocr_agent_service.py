@@ -33,19 +33,24 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ExtractionResult:
-    """Result from a single model extraction"""
+    """Result from a single model extraction - document-type-aware"""
     model_name: str
+    document_type: str  # 'invoice', 'purchase_order', 'receipt'
+    
+    # Common fields (all document types)
     vendor_name: Optional[str] = None
-    invoice_number: Optional[str] = None
-    po_number: Optional[str] = None
-    invoice_date: Optional[str] = None
+    document_number: Optional[str] = None  # Unified: invoice_number, po_number, or receipt_number
+    document_date: Optional[str] = None    # Unified: invoice_date, order_date, or transaction_date
     total_amount: Optional[float] = None
     currency: str = "USD"
     line_items: List[Dict] = field(default_factory=list)
+    
+    # Type-specific data (stored as dict)
+    type_specific_data: Dict = field(default_factory=dict)
+    
     confidence: float = 0.0
     raw_response: Optional[str] = None
     error: Optional[str] = None
-    raw_data: Optional[Dict] = None  # Preserve all extracted fields for type-specific data
 
 
 @dataclass
@@ -198,12 +203,14 @@ class OCRAgentService:
         logger.info("OCR AGENT FINAL EXTRACTION RESULT")
         logger.info("=" * 80)
         logger.info(f"Vendor Name: {best_result.get('vendor_name', 'NOT FOUND')}")
-        logger.info(f"Invoice Number: {best_result.get('invoice_number', 'NOT FOUND')}")
-        logger.info(f"PO Number: {best_result.get('po_number', 'NOT FOUND')}")
-        logger.info(f"Invoice/Order Date: {best_result.get('invoice_date', 'NOT FOUND')}")
+        logger.info(f"Document Number: {best_result.get('document_number', 'NOT FOUND')}")
+        logger.info(f"Document Date: {best_result.get('document_date', 'NOT FOUND')}")
         logger.info(f"Total Amount: {best_result.get('total_amount', 'NOT FOUND')}")
         logger.info(f"Currency: {best_result.get('currency', 'NOT FOUND')}")
         logger.info(f"Line Items: {len(best_result.get('line_items', []))}")
+        type_specific = best_result.get('type_specific_data', {})
+        if type_specific:
+            logger.info(f"Type-Specific Data: {list(type_specific.keys())}")
         logger.info(f"Full result keys: {list(best_result.keys())}")
         logger.info("=" * 80)
         
@@ -269,16 +276,13 @@ CRITICAL: Pay close attention to the TABLE COLUMNS. Common column headers includ
 VERIFY YOUR MATH: For each line item, check that:
   quantity × unit_price ≈ line_total (from the document)
 
-Extract and return JSON:
+Extract and return JSON using this EXACT structure:
 {
     "vendor_name": "Company/Vendor name (supplier)",
-    "po_number": "Purchase order number",
-    "order_date": "YYYY-MM-DD format",
+    "document_number": "Purchase order number",
+    "document_date": "YYYY-MM-DD format (order date)",
     "total_amount": number (grand total),
     "currency": "USD/EUR/etc",
-    "requester_email": "Email address of person requesting the PO",
-    "requester_name": "Name of person requesting the PO",
-    "ship_to_address": "Shipping address if present",
     "line_items": [
         {
             "line_no": 1,
@@ -288,24 +292,30 @@ Extract and return JSON:
             "line_total": number (from document, should ≈ qty × unit_price)
         }
     ],
+    "type_specific": {
+        "requester_name": "Name of person requesting the PO",
+        "requester_email": "Email address of person requesting the PO",
+        "ship_to_address": "Shipping address if present"
+    },
     "table_columns_found": ["Date", "Description", "Price", "Qty", "Total"],
     "extraction_notes": "Any uncertainty about column interpretation"
 }
+
+IMPORTANT: Use "document_number" (not "po_number") and "document_date" (not "order_date") for common fields.
+Put PO-specific fields like requester_email in the "type_specific" section.
 
 Return ONLY the JSON, no markdown."""
         
         elif document_type == "receipt":
             return """Analyze this RECEIPT document VERY CAREFULLY.
 
-Extract and return JSON:
+Extract and return JSON using this EXACT structure:
 {
-    "merchant_name": "Store/merchant name",
-    "receipt_number": "Receipt number or transaction ID",
-    "transaction_date": "YYYY-MM-DD format",
+    "vendor_name": "Store/merchant name",
+    "document_number": "Receipt number or transaction ID",
+    "document_date": "YYYY-MM-DD format (transaction date)",
     "total_amount": number (total paid),
     "currency": "USD/EUR/etc",
-    "payment_method": "Cash/Credit Card/Debit/etc",
-    "transaction_id": "Transaction ID if present",
     "line_items": [
         {
             "line_no": 1,
@@ -314,8 +324,15 @@ Extract and return JSON:
             "unit_price": number,
             "line_total": number
         }
-    ]
+    ],
+    "type_specific": {
+        "payment_method": "Cash/Credit Card/Debit/etc",
+        "transaction_id": "Transaction ID if present"
+    }
 }
+
+IMPORTANT: Use "vendor_name" (not "merchant_name"), "document_number" (not "receipt_number"), and "document_date" (not "transaction_date") for common fields.
+Put receipt-specific fields like payment_method in the "type_specific" section.
 
 Return ONLY the JSON, no markdown."""
         
@@ -337,17 +354,13 @@ CRITICAL: Pay close attention to the TABLE COLUMNS. Common column headers includ
 VERIFY YOUR MATH: For each line item, check that:
   quantity × unit_price ≈ line_total (from the document)
 
-Extract and return JSON:
+Extract and return JSON using this EXACT structure:
 {
     "vendor_name": "Company that SENT/ISSUED the invoice (from letterhead, NOT Bill To)",
-    "invoice_number": "Invoice number/ID",
-    "po_number": "PO number if present",
-    "invoice_date": "YYYY-MM-DD format",
+    "document_number": "Invoice number/ID",
+    "document_date": "YYYY-MM-DD format",
     "total_amount": number (grand total),
     "currency": "USD/EUR/etc",
-    "tax_amount": number (tax if present),
-    "payment_terms": "Payment terms if present",
-    "due_date": "Due date if present (YYYY-MM-DD)",
     "line_items": [
         {
             "line_no": 1,
@@ -357,9 +370,18 @@ Extract and return JSON:
             "line_total": number (from document, should ≈ qty × unit_price)
         }
     ],
+    "type_specific": {
+        "po_number": "PO number if present",
+        "tax_amount": number (tax if present),
+        "payment_terms": "Payment terms if present",
+        "due_date": "Due date if present (YYYY-MM-DD)"
+    },
     "table_columns_found": ["Date", "Description", "Price", "Qty", "Total"],
     "extraction_notes": "Any uncertainty about column interpretation"
 }
+
+IMPORTANT: Use "document_number" (not "invoice_number") and "document_date" (not "invoice_date") for common fields.
+Put invoice-specific fields like po_number, tax_amount, payment_terms, due_date in the "type_specific" section.
 
 Return ONLY the JSON, no markdown."""
     
@@ -409,7 +431,7 @@ Return ONLY the JSON, no markdown."""
             
             if response and response.text:
                 data = self._parse_json_response(response.text)
-                return self._dict_to_extraction_result(data, "gemini", response.text)
+                return self._dict_to_extraction_result(data, "gemini", document_type, response.text)
             
         except Exception as e:
             logger.error(f"Gemini extraction failed: {e}")
@@ -468,7 +490,7 @@ Return ONLY the JSON, no markdown."""
             
             if response.choices and response.choices[0].message.content:
                 data = self._parse_json_response(response.choices[0].message.content)
-                return self._dict_to_extraction_result(data, "gpt-4o", response.choices[0].message.content)
+                return self._dict_to_extraction_result(data, "gpt-4o", document_type, response.choices[0].message.content)
             
         except Exception as e:
             logger.error(f"GPT-4o extraction failed: {e}")
@@ -481,7 +503,7 @@ Return ONLY the JSON, no markdown."""
         filename: str,
         document_type: str = "invoice"
     ) -> Optional[ExtractionResult]:
-        """Extract using Azure Document Intelligence"""
+        """Extract using Azure Document Intelligence with document-type-aware routing"""
         
         if not self.azure_client:
             return None
@@ -489,38 +511,94 @@ Return ONLY the JSON, no markdown."""
         try:
             from io import BytesIO
             
+            # Route to appropriate Azure model based on document type
+            model_id_map = {
+                "invoice": "prebuilt-invoice",
+                "purchase_order": "prebuilt-document",  # Generic layout model for POs
+                "receipt": "prebuilt-receipt"
+            }
+            model_id = model_id_map.get(document_type, "prebuilt-invoice")
+            
             document_stream = BytesIO(file_content)
             
             poller = await self.azure_client.begin_analyze_document(
-                model_id="prebuilt-invoice",
+                model_id=model_id,
                 body=document_stream
             )
             
             result = await poller.result()
             
-            # Convert Azure DI result to our format
-            extraction = ExtractionResult(model_name="azure-di")
+            # Convert Azure DI result to our unified format
+            extraction = ExtractionResult(model_name="azure-di", document_type=document_type)
+            type_specific = {}
             
             if hasattr(result, 'documents') and result.documents:
                 doc = result.documents[0]
                 if hasattr(doc, 'fields') and doc.fields:
                     fields = doc.fields
                     
-                    # Extract fields
+                    # Extract common fields
                     if 'VendorName' in fields and hasattr(fields['VendorName'], 'value'):
                         extraction.vendor_name = str(fields['VendorName'].value)
                     
-                    if 'InvoiceId' in fields and hasattr(fields['InvoiceId'], 'value'):
-                        extraction.invoice_number = str(fields['InvoiceId'].value)
+                    # Extract document_number based on document type
+                    if document_type == "invoice":
+                        if 'InvoiceId' in fields and hasattr(fields['InvoiceId'], 'value'):
+                            extraction.document_number = str(fields['InvoiceId'].value)
+                        if 'PurchaseOrder' in fields and hasattr(fields['PurchaseOrder'], 'value'):
+                            type_specific['po_number'] = str(fields['PurchaseOrder'].value)
+                    elif document_type == "purchase_order":
+                        # For POs, Azure generic model may not have PO-specific fields
+                        # Try common field names
+                        if 'PurchaseOrderNumber' in fields and hasattr(fields['PurchaseOrderNumber'], 'value'):
+                            extraction.document_number = str(fields['PurchaseOrderNumber'].value)
+                        elif 'DocumentNumber' in fields and hasattr(fields['DocumentNumber'], 'value'):
+                            extraction.document_number = str(fields['DocumentNumber'].value)
+                    elif document_type == "receipt":
+                        if 'ReceiptNumber' in fields and hasattr(fields['ReceiptNumber'], 'value'):
+                            extraction.document_number = str(fields['ReceiptNumber'].value)
+                        elif 'TransactionId' in fields and hasattr(fields['TransactionId'], 'value'):
+                            extraction.document_number = str(fields['TransactionId'].value)
+                            type_specific['transaction_id'] = str(fields['TransactionId'].value)
                     
-                    if 'InvoiceDate' in fields and hasattr(fields['InvoiceDate'], 'value'):
+                    # Extract document_date (unified field name)
+                    date_field_map = {
+                        "invoice": "InvoiceDate",
+                        "purchase_order": "OrderDate",
+                        "receipt": "TransactionDate"
+                    }
+                    date_field = date_field_map.get(document_type, "InvoiceDate")
+                    if date_field in fields and hasattr(fields[date_field], 'value'):
+                        date_val = fields[date_field].value
+                        if hasattr(date_val, 'strftime'):
+                            extraction.document_date = date_val.strftime('%Y-%m-%d')
+                        else:
+                            extraction.document_date = str(date_val)
+                    # Fallback to InvoiceDate for invoices
+                    elif document_type == "invoice" and 'InvoiceDate' in fields:
                         date_val = fields['InvoiceDate'].value
                         if hasattr(date_val, 'strftime'):
-                            extraction.invoice_date = date_val.strftime('%Y-%m-%d')
+                            extraction.document_date = date_val.strftime('%Y-%m-%d')
                         else:
-                            extraction.invoice_date = str(date_val)
+                            extraction.document_date = str(date_val)
                     
-                    if 'InvoiceTotal' in fields and hasattr(fields['InvoiceTotal'], 'value'):
+                    # Extract total_amount
+                    total_field_map = {
+                        "invoice": "InvoiceTotal",
+                        "purchase_order": "TotalAmount",
+                        "receipt": "Total"
+                    }
+                    total_field = total_field_map.get(document_type, "InvoiceTotal")
+                    if total_field in fields and hasattr(fields[total_field], 'value'):
+                        total_val = fields[total_field].value
+                        if hasattr(total_val, 'amount'):
+                            extraction.total_amount = float(total_val.amount)
+                            if hasattr(total_val, 'currency_code'):
+                                extraction.currency = total_val.currency_code
+                        else:
+                            extraction.total_amount = float(total_val) if total_val else None
+                    # Fallback to InvoiceTotal for invoices
+                    elif document_type == "invoice" and 'InvoiceTotal' in fields:
                         total_val = fields['InvoiceTotal'].value
                         if hasattr(total_val, 'amount'):
                             extraction.total_amount = float(total_val.amount)
@@ -529,8 +607,27 @@ Return ONLY the JSON, no markdown."""
                         else:
                             extraction.total_amount = float(total_val) if total_val else None
                     
-                    if 'PurchaseOrder' in fields and hasattr(fields['PurchaseOrder'], 'value'):
-                        extraction.po_number = str(fields['PurchaseOrder'].value)
+                    # Extract type-specific fields
+                    if document_type == "invoice":
+                        if 'Tax' in fields and hasattr(fields['Tax'], 'value'):
+                            tax_val = fields['Tax'].value
+                            if hasattr(tax_val, 'amount'):
+                                type_specific['tax_amount'] = float(tax_val.amount)
+                            else:
+                                type_specific['tax_amount'] = float(tax_val) if tax_val else None
+                        if 'PaymentTerms' in fields and hasattr(fields['PaymentTerms'], 'value'):
+                            type_specific['payment_terms'] = str(fields['PaymentTerms'].value)
+                        if 'DueDate' in fields and hasattr(fields['DueDate'], 'value'):
+                            due_date_val = fields['DueDate'].value
+                            if hasattr(due_date_val, 'strftime'):
+                                type_specific['due_date'] = due_date_val.strftime('%Y-%m-%d')
+                            else:
+                                type_specific['due_date'] = str(due_date_val)
+                    elif document_type == "receipt":
+                        if 'PaymentMethod' in fields and hasattr(fields['PaymentMethod'], 'value'):
+                            type_specific['payment_method'] = str(fields['PaymentMethod'].value)
+                    
+                    extraction.type_specific_data = type_specific
                     
                     # Extract line items
                     if 'Items' in fields and hasattr(fields['Items'], 'value'):
@@ -723,7 +820,7 @@ Return ONLY the JSON, no markdown."""
         # If we have GPT-4o, use it for intelligent reconciliation
         if self.openai_client:
             return await self._llm_reconciliation(
-                file_content, filename, comparison, validated_results
+                file_content, filename, comparison, validated_results, document_type
             )
         
         # Fallback: Simple voting with preference for low-error results
@@ -738,7 +835,8 @@ Return ONLY the JSON, no markdown."""
         comparison = {
             "models": [],
             "vendor_name": {},
-            "invoice_number": {},
+            "document_number": {},
+            "document_date": {},
             "total_amount": {},
             "line_items": {}
         }
@@ -755,8 +853,10 @@ Return ONLY the JSON, no markdown."""
             # Track values by model
             if extraction.vendor_name:
                 comparison["vendor_name"][model] = extraction.vendor_name
-            if extraction.invoice_number:
-                comparison["invoice_number"][model] = extraction.invoice_number
+            if extraction.document_number:
+                comparison["document_number"][model] = extraction.document_number
+            if extraction.document_date:
+                comparison["document_date"][model] = extraction.document_date
             if extraction.total_amount:
                 comparison["total_amount"][model] = extraction.total_amount
             
@@ -917,8 +1017,13 @@ Return ONLY JSON."""
             lines.append(f"  {model}: {value}")
         lines.append("")
         
-        lines.append("INVOICE NUMBER:")
-        for model, value in comparison["invoice_number"].items():
+        lines.append("DOCUMENT NUMBER:")
+        for model, value in comparison.get("document_number", {}).items():
+            lines.append(f"  {model}: {value}")
+        lines.append("")
+        
+        lines.append("DOCUMENT DATE:")
+        for model, value in comparison.get("document_date", {}).items():
             lines.append(f"  {model}: {value}")
         lines.append("")
         
@@ -1079,23 +1184,35 @@ Return ONLY JSON."""
         )
         
         # Build verification prompt with total constraint
+        doc_type_label = {
+            "invoice": "invoice",
+            "purchase_order": "purchase order",
+            "receipt": "receipt"
+        }.get(document_type, "document")
+        
         total_constraint_note = ""
         if needs_correction or (calculated_sum > 0 and abs(total_amount - calculated_sum) / total_amount > 0.01):
             total_constraint_note = f"""
 
 ⚠️ CRITICAL MATH CONSTRAINT:
 - Current sum of line items: ${calculated_sum:,.2f}
-- Invoice total: ${total_amount:,.2f}
+- Document total: ${total_amount:,.2f}
 - Difference: {abs(total_amount - calculated_sum):,.2f} ({abs(total_amount - calculated_sum) / total_amount * 100:.1f}%)
 
-The sum of ALL line items MUST equal the invoice total. If it doesn't, there's likely a number format error."""
+The sum of ALL line items MUST equal the document total. If it doesn't, there's likely a number format error."""
 
-        prompt = f"""VERIFICATION REQUEST: Please verify the line items in this invoice.
+        doc_type_label = {
+            "invoice": "invoice",
+            "purchase_order": "purchase order",
+            "receipt": "receipt"
+        }.get(document_type, "document")
+        
+        prompt = f"""VERIFICATION REQUEST: Please verify the line items in this {doc_type_label}.
 
 CURRENT EXTRACTED DATA:
 {json.dumps(line_items, indent=2)}
 
-INVOICE TOTAL: ${total_amount:,.2f}
+DOCUMENT TOTAL: ${total_amount:,.2f}
 {total_constraint_note}
 
 VERIFICATION CHECKLIST:
@@ -1138,7 +1255,7 @@ Return CORRECTED line items as JSON:
     "verification_notes": "What was corrected and why. Include math check: sum of line items = total"
 }}
 
-IMPORTANT: After correction, verify that sum of all (quantity × unit_price) equals the invoice total.
+IMPORTANT: After correction, verify that sum of all (quantity × unit_price) equals the document total.
 Return ONLY JSON."""
 
         try:
@@ -1187,95 +1304,102 @@ Return ONLY JSON."""
         self, 
         data: Dict, 
         model_name: str,
+        document_type: str,
         raw_response: str = None
     ) -> ExtractionResult:
-        """Convert parsed dict to ExtractionResult"""
+        """Convert parsed dict to ExtractionResult with unified field names"""
         
+        # Normalize line items
         line_items = []
         for item in data.get('line_items', []):
-            line_items.append({
-                'line_no': item.get('line_no', 1),
-                'description': item.get('description'),
-                'quantity': item.get('quantity'),
-                'unit_price': item.get('unit_price'),
-                'line_total': item.get('line_total')
-            })
+            normalized_item = {
+                'line_no': item.get('line_no', item.get('line_number', item.get('line', 1))),
+                'description': item.get('description') or item.get('item_description') or '',
+                'quantity': item.get('quantity') or item.get('qty') or 0,
+                'unit_price': item.get('unit_price') or item.get('price') or item.get('unit_cost') or 0,
+            }
+            if 'line_total' in item or 'total' in item:
+                normalized_item['line_total'] = item.get('line_total') or item.get('total') or 0
+            line_items.append(normalized_item)
+        
+        # Extract type-specific data from 'type_specific' section or top-level fields
+        type_specific = data.get('type_specific', {})
+        
+        # For backward compatibility, also check top-level fields
+        if document_type == "invoice":
+            if 'po_number' in data and 'po_number' not in type_specific:
+                type_specific['po_number'] = data['po_number']
+            if 'tax_amount' in data and 'tax_amount' not in type_specific:
+                type_specific['tax_amount'] = data['tax_amount']
+            if 'payment_terms' in data and 'payment_terms' not in type_specific:
+                type_specific['payment_terms'] = data['payment_terms']
+            if 'due_date' in data and 'due_date' not in type_specific:
+                type_specific['due_date'] = data['due_date']
+        elif document_type == "purchase_order":
+            if 'requester_email' in data and 'requester_email' not in type_specific:
+                type_specific['requester_email'] = data['requester_email']
+            if 'requester_name' in data and 'requester_name' not in type_specific:
+                type_specific['requester_name'] = data['requester_name']
+            if 'ship_to_address' in data and 'ship_to_address' not in type_specific:
+                type_specific['ship_to_address'] = data['ship_to_address']
+            # Handle order_date - if in type_specific, use it; otherwise use document_date
+            if 'order_date' in data and 'order_date' not in type_specific:
+                type_specific['order_date'] = data['order_date']
+        elif document_type == "receipt":
+            if 'payment_method' in data and 'payment_method' not in type_specific:
+                type_specific['payment_method'] = data['payment_method']
+            if 'transaction_id' in data and 'transaction_id' not in type_specific:
+                type_specific['transaction_id'] = data['transaction_id']
+        
+        # Extract unified common fields
+        vendor_name = data.get('vendor_name') or data.get('merchant_name')
+        document_number = (
+            data.get('document_number') or 
+            data.get('invoice_number') or 
+            data.get('po_number') or 
+            data.get('receipt_number')
+        )
+        document_date = (
+            data.get('document_date') or 
+            data.get('invoice_date') or 
+            data.get('order_date') or 
+            data.get('transaction_date')
+        )
         
         return ExtractionResult(
             model_name=model_name,
-            vendor_name=data.get('vendor_name') or data.get('merchant_name'),
-            invoice_number=data.get('invoice_number') or data.get('po_number') or data.get('receipt_number'),
-            po_number=data.get('po_number'),
-            invoice_date=data.get('invoice_date') or data.get('order_date') or data.get('transaction_date'),
+            document_type=document_type,
+            vendor_name=vendor_name,
+            document_number=document_number,
+            document_date=document_date,
             total_amount=data.get('total_amount'),
             currency=data.get('currency', 'USD'),
             line_items=line_items,
+            type_specific_data=type_specific,
             confidence=data.get('confidence', {}).get('overall', 0.8) if isinstance(data.get('confidence'), dict) else 0.8,
-            raw_response=raw_response,
-            raw_data=data  # Preserve all fields for type-specific extraction
+            raw_response=raw_response
         )
     
     def _extraction_to_dict(self, extraction: ExtractionResult) -> Dict:
-        """Convert ExtractionResult to dict for response"""
+        """Convert ExtractionResult to dict with unified schema"""
         
-        # Start with common fields
+        # Return unified structure
         result = {
             'vendor_name': extraction.vendor_name,
+            'document_number': extraction.document_number,
+            'document_date': extraction.document_date,
             'total_amount': extraction.total_amount,
             'currency': extraction.currency,
-            'line_items': extraction.line_items
+            'line_items': extraction.line_items,
+            'type_specific_data': extraction.type_specific_data,
         }
-        
-        # Add document-type-specific fields from raw_data if available
-        if extraction.raw_data:
-            # For invoices
-            if 'invoice_number' in extraction.raw_data:
-                result['invoice_number'] = extraction.raw_data.get('invoice_number')
-            if 'invoice_date' in extraction.raw_data:
-                result['invoice_date'] = extraction.raw_data.get('invoice_date')
-            if 'po_number' in extraction.raw_data:
-                result['po_number'] = extraction.raw_data.get('po_number')
-            if 'tax_amount' in extraction.raw_data:
-                result['tax_amount'] = extraction.raw_data.get('tax_amount')
-            if 'payment_terms' in extraction.raw_data:
-                result['payment_terms'] = extraction.raw_data.get('payment_terms')
-            if 'due_date' in extraction.raw_data:
-                result['due_date'] = extraction.raw_data.get('due_date')
-            
-            # For purchase orders
-            if 'po_number' in extraction.raw_data:
-                result['po_number'] = extraction.raw_data.get('po_number')
-            if 'order_date' in extraction.raw_data:
-                result['order_date'] = extraction.raw_data.get('order_date')
-            if 'requester_email' in extraction.raw_data:
-                result['requester_email'] = extraction.raw_data.get('requester_email')
-            if 'requester_name' in extraction.raw_data:
-                result['requester_name'] = extraction.raw_data.get('requester_name')
-            if 'ship_to_address' in extraction.raw_data:
-                result['ship_to_address'] = extraction.raw_data.get('ship_to_address')
-            
-            # For receipts
-            if 'receipt_number' in extraction.raw_data:
-                result['receipt_number'] = extraction.raw_data.get('receipt_number')
-            if 'transaction_date' in extraction.raw_data:
-                result['transaction_date'] = extraction.raw_data.get('transaction_date')
-            if 'merchant_name' in extraction.raw_data:
-                result['merchant_name'] = extraction.raw_data.get('merchant_name')
-            if 'payment_method' in extraction.raw_data:
-                result['payment_method'] = extraction.raw_data.get('payment_method')
-            if 'transaction_id' in extraction.raw_data:
-                result['transaction_id'] = extraction.raw_data.get('transaction_id')
-        else:
-            # Fallback to ExtractionResult fields
-            result['invoice_number'] = extraction.invoice_number
-            result['po_number'] = extraction.po_number
-            result['invoice_date'] = extraction.invoice_date
         
         # Log extraction result for debugging
         logger.info(f"[{extraction.model_name}] Extracted: vendor={extraction.vendor_name}, "
-                   f"document_number={result.get('invoice_number') or result.get('po_number') or result.get('receipt_number')}, "
-                   f"date={result.get('invoice_date') or result.get('order_date') or result.get('transaction_date')}, "
-                   f"total={extraction.total_amount}, line_items={len(extraction.line_items)}")
+                   f"document_number={extraction.document_number}, "
+                   f"document_date={extraction.document_date}, "
+                   f"total={extraction.total_amount}, line_items={len(extraction.line_items)}, "
+                   f"type_specific_keys={list(extraction.type_specific_data.keys())}")
         
         return result
     

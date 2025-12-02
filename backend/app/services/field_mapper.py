@@ -93,46 +93,73 @@ class FieldMapper:
         """
         Normalize OCR output to unified document schema.
         
+        With type-aware extraction, this mainly handles edge cases and ensures
+        consistent output format. The OCR agent already produces unified field names.
+        
         Args:
-            raw_data: Raw OCR extraction output
+            raw_data: OCR extraction output (should already use unified schema)
             document_type: 'invoice', 'purchase_order', or 'receipt'
             
         Returns:
             Normalized dict with unified field names
         """
+        # Handle 'po' -> 'purchase_order' mapping
+        if document_type == "po":
+            document_type = "purchase_order"
+        
+        # Start with the data as-is (OCR agent already produces unified schema)
+        normalized = raw_data.copy()
+        
+        # Ensure common fields use unified names (handle edge cases)
+        # Map old field names to unified names if present
+        if "invoice_number" in normalized and "document_number" not in normalized:
+            normalized["document_number"] = normalized.pop("invoice_number")
+        if "po_number" in normalized and "document_number" not in normalized:
+            normalized["document_number"] = normalized.pop("po_number")
+        if "receipt_number" in normalized and "document_number" not in normalized:
+            normalized["document_number"] = normalized.pop("receipt_number")
+        
+        if "invoice_date" in normalized and "document_date" not in normalized:
+            normalized["document_date"] = normalized.pop("invoice_date")
+        if "order_date" in normalized and "document_date" not in normalized:
+            normalized["document_date"] = normalized.pop("order_date")
+        if "transaction_date" in normalized and "document_date" not in normalized:
+            normalized["document_date"] = normalized.pop("transaction_date")
+        
+        if "merchant_name" in normalized and "vendor_name" not in normalized:
+            normalized["vendor_name"] = normalized.pop("merchant_name")
+        
+        # Ensure type_specific_data exists and is properly structured
+        if "type_specific" in normalized:
+            normalized["type_specific_data"] = normalized.pop("type_specific")
+        elif "type_specific_data" not in normalized:
+            normalized["type_specific_data"] = {}
+        
+        # Extract type-specific fields into type_specific_data if they're at top level
+        type_specific = normalized.get("type_specific_data", {})
+        
         if document_type == "invoice":
-            field_map = FieldMapper.INVOICE_FIELD_MAP
+            for field in ["po_number", "tax_amount", "payment_terms", "due_date"]:
+                if field in normalized and field not in type_specific:
+                    type_specific[field] = normalized.pop(field)
         elif document_type == "purchase_order":
-            field_map = FieldMapper.PO_FIELD_MAP
+            for field in ["requester_name", "requester_email", "ship_to_address", "order_date"]:
+                if field in normalized and field not in type_specific:
+                    type_specific[field] = normalized.pop(field)
         elif document_type == "receipt":
-            field_map = FieldMapper.RECEIPT_FIELD_MAP
-        else:
-            logger.warning(f"Unknown document type: {document_type}, using invoice mapping")
-            field_map = FieldMapper.INVOICE_FIELD_MAP
+            for field in ["payment_method", "transaction_id"]:
+                if field in normalized and field not in type_specific:
+                    type_specific[field] = normalized.pop(field)
         
-        normalized = {}
+        normalized["type_specific_data"] = type_specific
         
-        # Map common fields
-        for ocr_key, standard_key in field_map.items():
-            if ocr_key in raw_data and raw_data[ocr_key] is not None:
-                normalized[standard_key] = raw_data[ocr_key]
-        
-        # Handle direct matches (if OCR already uses standard names)
-        for key in ["vendor_name", "document_number", "document_date", "total_amount", "currency", "line_items"]:
-            if key in raw_data and key not in normalized:
-                normalized[key] = raw_data[key]
-        
-        # Normalize line items
+        # Normalize line items (ensure consistent format)
         if "line_items" in normalized:
             normalized["line_items"] = FieldMapper._normalize_line_items(normalized["line_items"])
         
-        # Extract type-specific data
-        type_specific = FieldMapper._extract_type_specific_data(raw_data, document_type)
-        if type_specific:
-            normalized["type_specific_data"] = type_specific
-        
         # Preserve raw OCR data
-        normalized["raw_ocr"] = raw_data
+        if "raw_ocr" not in normalized:
+            normalized["raw_ocr"] = raw_data
         
         return normalized
     
@@ -157,7 +184,12 @@ class FieldMapper:
     
     @staticmethod
     def _extract_type_specific_data(raw_data: Dict[str, Any], document_type: str) -> Dict[str, Any]:
-        """Extract type-specific fields into type_specific_data dict"""
+        """
+        Extract type-specific fields into type_specific_data dict.
+        
+        This is mainly for backward compatibility. With type-aware extraction,
+        type_specific_data should already be present in the OCR output.
+        """
         type_data = {}
         
         if document_type == "invoice":
@@ -181,14 +213,12 @@ class FieldMapper:
                 type_data["order_date"] = raw_data["order_date"]
         
         elif document_type == "receipt":
-            if "merchant_name" in raw_data or "merchant" in raw_data:
-                type_data["merchant_name"] = raw_data.get("merchant_name") or raw_data.get("merchant")
             if "payment_method" in raw_data or "payment_type" in raw_data:
                 type_data["payment_method"] = raw_data.get("payment_method") or raw_data.get("payment_type")
             if "transaction_id" in raw_data:
                 type_data["transaction_id"] = raw_data["transaction_id"]
         
-        return type_data if type_data else None
+        return type_data if type_data else {}
     
     @staticmethod
     def _to_decimal(value: Any) -> Decimal:
