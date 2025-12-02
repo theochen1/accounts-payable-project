@@ -80,7 +80,7 @@ class DocumentVerify(BaseModel):
 class DocumentResponse(BaseModel):
     """Full document response schema"""
     id: int
-    document_type: str
+    document_type: Optional[str] = None  # Can be null until classified
     status: str
     vendor_name: Optional[str] = None
     vendor_id: Optional[int] = None
@@ -109,7 +109,7 @@ class DocumentListResponse(BaseModel):
     """Simplified response for listing documents"""
     id: int
     filename: str
-    document_type: Optional[str] = None
+    document_type: Optional[str] = None  # Can be null until classified
     status: str
     vendor_name: Optional[str] = None
     document_number: Optional[str] = None
