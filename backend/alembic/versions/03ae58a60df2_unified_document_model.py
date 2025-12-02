@@ -56,18 +56,48 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
-    op.add_column('documents', sa.Column('vendor_name', sa.String(), nullable=True))
-    op.add_column('documents', sa.Column('document_number', sa.String(), nullable=True))
-    op.add_column('documents', sa.Column('document_date', sa.Date(), nullable=True))
-    op.add_column('documents', sa.Column('total_amount', sa.Numeric(12, 2), nullable=True))
-    op.add_column('documents', sa.Column('currency', sa.String(), nullable=True, server_default='USD'))
-    op.add_column('documents', sa.Column('type_specific_data', postgresql.JSON(astext_type=sa.Text()), nullable=True))
-    op.add_column('documents', sa.Column('line_items', postgresql.JSON(astext_type=sa.Text()), nullable=True))
-    op.add_column('documents', sa.Column('raw_ocr', postgresql.JSON(astext_type=sa.Text()), nullable=True))
-    op.add_column('documents', sa.Column('extraction_source', sa.String(), nullable=True))
-    op.add_column('documents', sa.Column('vendor_id', sa.Integer(), nullable=True))
-    op.add_column('documents', sa.Column('vendor_match', postgresql.JSON(astext_type=sa.Text()), nullable=True))
-    op.add_column('documents', sa.Column('processed_at', sa.DateTime(timezone=True), nullable=True))
+    # Add new columns only if they don't exist
+    columns_to_add = [
+        ('vendor_name', 'VARCHAR'),
+        ('document_number', 'VARCHAR'),
+        ('document_date', 'DATE'),
+        ('total_amount', 'NUMERIC(12, 2)'),
+        ('currency', 'VARCHAR DEFAULT \'USD\''),
+        ('type_specific_data', 'JSONB'),
+        ('line_items', 'JSONB'),
+        ('raw_ocr', 'JSONB'),
+        ('extraction_source', 'VARCHAR'),
+        ('vendor_id', 'INTEGER'),
+        ('vendor_match', 'JSONB'),
+        ('uploaded_at', 'TIMESTAMP WITH TIME ZONE DEFAULT now()'),
+        ('processed_at', 'TIMESTAMP WITH TIME ZONE'),
+    ]
+    
+    for col_name, col_type in columns_to_add:
+        op.execute(f"""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                              WHERE table_name='documents' AND column_name='{col_name}') THEN
+                    ALTER TABLE documents ADD COLUMN {col_name} {col_type};
+                END IF;
+            END $$;
+        """)
+    
+    # Ensure created_at and updated_at exist (they should from previous migration, but add if missing)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='documents' AND column_name='created_at') THEN
+                ALTER TABLE documents ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='documents' AND column_name='updated_at') THEN
+                ALTER TABLE documents ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+            END IF;
+        END $$;
+    """)
     
     # Update document_type to be NOT NULL (will need to handle existing nulls)
     op.execute("UPDATE documents SET document_type = 'invoice' WHERE document_type IS NULL")
@@ -98,6 +128,7 @@ def downgrade() -> None:
     
     # Remove new columns
     op.drop_column('documents', 'processed_at')
+    op.drop_column('documents', 'uploaded_at')
     op.drop_column('documents', 'vendor_match')
     op.drop_column('documents', 'vendor_id')
     op.drop_column('documents', 'extraction_source')
