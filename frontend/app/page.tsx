@@ -24,7 +24,8 @@ export default function Dashboard() {
   const loadDocuments = async () => {
     try {
       const docs = await documentApi.list();
-      setDocuments(docs.filter((d) => !d.processed_id));
+      // Filter out processed documents (they're in the processed archive)
+      setDocuments(docs.filter((d) => d.status !== 'processed'));
     } catch (error) {
       console.error('Failed to load documents:', error);
     } finally {
