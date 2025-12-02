@@ -294,7 +294,7 @@ Extract and return JSON using this EXACT structure:
     ],
     "type_specific": {
         "requester_name": "Name of person requesting the PO",
-        "requester_email": "Email address of person requesting the PO",
+        "requester_email": "Email address of person requesting the PO (look for any email addresses on the document - requester, contact, or vendor email)",
         "ship_to_address": "Shipping address if present"
     },
     "table_columns_found": ["Date", "Description", "Price", "Qty", "Total"],
@@ -303,6 +303,8 @@ Extract and return JSON using this EXACT structure:
 
 IMPORTANT: Use "document_number" (not "po_number") and "document_date" (not "order_date") for common fields.
 Put PO-specific fields like requester_email in the "type_specific" section.
+
+CRITICAL: Look carefully for ANY email addresses on the document - check headers, footers, contact sections, and signature areas. Extract the requester_email if found.
 
 Return ONLY the JSON, no markdown."""
         
@@ -333,6 +335,8 @@ Extract and return JSON using this EXACT structure:
 
 IMPORTANT: Use "vendor_name" (not "merchant_name"), "document_number" (not "receipt_number"), and "document_date" (not "transaction_date") for common fields.
 Put receipt-specific fields like payment_method in the "type_specific" section.
+
+CRITICAL: Look carefully for ANY email addresses on the document - check headers, footers, and contact sections. Extract as contact_email in type_specific if found.
 
 Return ONLY the JSON, no markdown."""
         
@@ -374,7 +378,8 @@ Extract and return JSON using this EXACT structure:
         "po_number": "PO number if present",
         "tax_amount": number (tax if present),
         "payment_terms": "Payment terms if present",
-        "due_date": "Due date if present (YYYY-MM-DD)"
+        "due_date": "Due date if present (YYYY-MM-DD)",
+        "contact_email": "Any email address found on the invoice (vendor contact, billing contact, etc.)"
     },
     "table_columns_found": ["Date", "Description", "Price", "Qty", "Total"],
     "extraction_notes": "Any uncertainty about column interpretation"
@@ -382,6 +387,8 @@ Extract and return JSON using this EXACT structure:
 
 IMPORTANT: Use "document_number" (not "invoice_number") and "document_date" (not "invoice_date") for common fields.
 Put invoice-specific fields like po_number, tax_amount, payment_terms, due_date in the "type_specific" section.
+
+CRITICAL: Look carefully for ANY email addresses on the document - check headers, footers, contact sections, and signature areas. Extract as contact_email in type_specific if found.
 
 Return ONLY the JSON, no markdown."""
     
