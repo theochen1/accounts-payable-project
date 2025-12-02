@@ -514,7 +514,7 @@ Return ONLY the JSON, no markdown."""
             # Route to appropriate Azure model based on document type
             model_id_map = {
                 "invoice": "prebuilt-invoice",
-                "purchase_order": "prebuilt-document",  # Generic layout model for POs
+                "purchase_order": "prebuilt-layout",  # Generic layout model for POs
                 "receipt": "prebuilt-receipt"
             }
             model_id = model_id_map.get(document_type, "prebuilt-invoice")

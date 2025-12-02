@@ -373,6 +373,11 @@ export const documentApi = {
     return response.data;
   },
 
+  finalize: async (id: number): Promise<{ success: boolean; document_id: number; status: string; message: string }> => {
+    const response = await api.post(`/api/documents/${id}/finalize`);
+    return response.data;
+  },
+
   delete: async (id: number): Promise<void> => {
     await api.delete(`/api/documents/${id}`);
   },

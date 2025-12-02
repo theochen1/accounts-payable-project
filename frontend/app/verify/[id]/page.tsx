@@ -84,6 +84,9 @@ export default function VerifyPage() {
         });
       }
 
+      // After verify succeeds, finalize the document to mark it as processed
+      await documentApi.finalize(document.id);
+
       toast({
         title: 'Document saved',
         description: 'The document has been processed and saved successfully.',

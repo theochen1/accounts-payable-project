@@ -494,8 +494,9 @@ async def verify_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if document.status != "pending_verification":
-        raise HTTPException(status_code=400, detail=f"Document must be in pending_verification status. Current status: {document.status}")
+    # Allow verification from pending_verification or verified status (idempotent)
+    if document.status not in ["pending_verification", "verified"]:
+        raise HTTPException(status_code=400, detail=f"Document must be in pending_verification or verified status. Current status: {document.status}")
     
     # Update document with verified data
     document.vendor_name = verify_data.vendor_name
