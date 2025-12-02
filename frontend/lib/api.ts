@@ -308,8 +308,8 @@ export const documentApi = {
     return response.data;
   },
 
-  setType: async (id: number, documentType: 'invoice' | 'po'): Promise<Document> => {
-    const response = await api.patch(`/api/documents/${id}/type`, {
+  setType: async (id: number, documentType: 'invoice' | 'purchase_order' | 'receipt'): Promise<Document> => {
+    const response = await api.post(`/api/documents/${id}/classify`, {
       document_type: documentType,
     }, {
       headers: {
@@ -320,7 +320,7 @@ export const documentApi = {
   },
 
   process: async (id: number): Promise<DocumentOCRResult> => {
-    const response = await api.post(`/api/documents/${id}/process`);
+    const response = await api.post(`/api/documents/${id}/process-ocr`);
     return response.data;
   },
 

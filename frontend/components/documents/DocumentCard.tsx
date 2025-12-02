@@ -9,7 +9,7 @@ import { FileText, Play, RotateCw, Trash2, Loader2 } from 'lucide-react';
 
 interface DocumentCardProps {
   document: Document;
-  onTypeChange: (id: number, type: 'invoice' | 'po') => void;
+  onTypeChange: (id: number, type: 'invoice' | 'purchase_order' | 'receipt') => void;
   onProcess: (id: number) => void;
   onRetry: (id: number) => void;
   onDelete: (id: number) => void;
@@ -24,9 +24,10 @@ export default function DocumentCard({
   onDelete,
   isProcessing = false,
 }: DocumentCardProps) {
-  const canProcess = document.status === 'pending' && document.document_type;
+  // Can process if document is classified (has type) and not yet processed
+  const canProcess = (document.status === 'classified' || document.status === 'pending') && document.document_type;
   const canRetry = document.status === 'error';
-  const isReady = document.status === 'processed';
+  const isReady = document.status === 'pending_verification' || document.status === 'processed';
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -59,14 +60,15 @@ export default function DocumentCard({
               <Select
                 value={document.document_type || ''}
                 onValueChange={(value) => onTypeChange(document.id, value as 'invoice' | 'po')}
-                disabled={document.status === 'processing' || isReady}
+                disabled={document.status === 'ocr_processing' || document.status === 'processing' || isReady}
               >
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Select type..." />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="invoice">Invoice</SelectItem>
-                  <SelectItem value="po">Purchase Order</SelectItem>
+                  <SelectItem value="purchase_order">Purchase Order</SelectItem>
+                  <SelectItem value="receipt">Receipt</SelectItem>
                 </SelectContent>
               </Select>
 

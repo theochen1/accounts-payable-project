@@ -47,7 +47,7 @@ export default function DocumentsPage() {
     }
   };
 
-  const handleTypeChange = async (id: number, type: 'invoice' | 'po') => {
+  const handleTypeChange = async (id: number, type: 'invoice' | 'purchase_order' | 'receipt') => {
     try {
       await documentApi.setType(id, type);
       await loadDocuments();
@@ -67,7 +67,7 @@ export default function DocumentsPage() {
       const result = await documentApi.process(id);
       await loadDocuments();
 
-      if (result.status === 'processed') {
+      if (result.status === 'pending_verification') {
         toast({
           title: 'Processing complete',
           description: 'Document has been processed successfully.',
