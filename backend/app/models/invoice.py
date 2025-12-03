@@ -14,6 +14,7 @@ class Invoice(Base):
     invoice_date = Column(Date, nullable=True)
     total_amount = Column(Numeric(10, 2), nullable=True)
     currency = Column(String, default="USD")
+    contact_email = Column(String, nullable=True)  # Email for escalation and exception handling
     pdf_storage_path = Column(String, nullable=True)
     ocr_json = Column(JSON, nullable=True)  # Store raw OCR output
     status = Column(String, default="new", index=True)  # new, matched, needs_review, exception, approved, rejected, routed

@@ -26,6 +26,7 @@ class InvoiceResponse(BaseModel):
     invoice_date: Optional[date]
     total_amount: Optional[Decimal]
     currency: str
+    contact_email: Optional[str] = None
     pdf_storage_path: Optional[str]
     status: str
     created_at: datetime
@@ -59,6 +60,7 @@ class InvoiceDetailResponse(BaseModel):
     invoice_date: Optional[date]
     total_amount: Optional[Decimal]
     currency: str
+    contact_email: Optional[str] = None
     pdf_storage_path: Optional[str]
     ocr_json: Optional[dict]
     status: str
@@ -79,6 +81,7 @@ class InvoiceCreate(BaseModel):
     invoice_date: Optional[date] = None
     total_amount: Optional[Decimal] = None
     currency: str = "USD"
+    contact_email: Optional[str] = None
     pdf_storage_path: Optional[str] = None
     ocr_json: Optional[dict] = None
 

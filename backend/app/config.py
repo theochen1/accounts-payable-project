@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # CORS Configuration
     cors_origins: str = "http://localhost:3000,http://localhost:3001,https://*.vercel.app"
     
+    # Gmail API Configuration
+    gmail_sender_email: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

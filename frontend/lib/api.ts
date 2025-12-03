@@ -656,3 +656,75 @@ export const pairsApi = {
   },
 };
 
+// Email API types and functions
+export interface EmailDraftRequest {
+  document_pair_id: string;
+  issue_ids?: string[];
+}
+
+export interface EmailDraftResponse {
+  email_log_id: string;
+  to_addresses: string[];
+  cc_addresses?: string[];
+  subject: string;
+  body_text: string;
+  body_html: string;
+  summary: string;
+  status: string;
+}
+
+export interface EmailSendRequest {
+  email_log_id: string;
+  subject?: string;
+  body_text?: string;
+  body_html?: string;
+  to_addresses?: string[];
+  cc_addresses?: string[];
+}
+
+export interface EmailSendResponse {
+  email_log_id: string;
+  message_id: string;
+  thread_id?: string;
+  success: boolean;
+  status: string;
+  error_message?: string;
+}
+
+export interface EmailLog {
+  id: string;
+  document_pair_id: string;
+  to_addresses: string[];
+  cc_addresses?: string[];
+  subject: string;
+  body_text: string;
+  body_html?: string;
+  issue_ids?: string[];
+  status: 'draft' | 'sent' | 'failed';
+  gmail_message_id?: string;
+  gmail_thread_id?: string;
+  drafted_at: string;
+  drafted_by?: string;
+  sent_at?: string;
+  sent_by?: string;
+  error_message?: string;
+  created_at: string;
+}
+
+export const emailApi = {
+  draft: async (request: EmailDraftRequest): Promise<EmailDraftResponse> => {
+    const response = await api.post('/api/email/draft', request);
+    return response.data;
+  },
+
+  send: async (request: EmailSendRequest): Promise<EmailSendResponse> => {
+    const response = await api.post('/api/email/send', request);
+    return response.data;
+  },
+
+  getPairEmails: async (pairId: string): Promise<EmailLog[]> => {
+    const response = await api.get(`/api/email/pair/${pairId}/emails`);
+    return response.data;
+  },
+};
+

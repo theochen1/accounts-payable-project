@@ -10,6 +10,7 @@ from app.models.matching_result import MatchingResult
 from app.models.review_queue import ReviewQueue
 from app.models.document_pair import DocumentPair
 from app.models.validation_issue import ValidationIssue
+from app.models.email_log import EmailLog
 
-__all__ = ["Vendor", "PurchaseOrder", "POLine", "Invoice", "InvoiceLine", "Decision", "Document", "AgentTask", "AgentTaskStep", "MatchingResult", "ReviewQueue", "DocumentPair", "ValidationIssue"]
+__all__ = ["Vendor", "PurchaseOrder", "POLine", "Invoice", "InvoiceLine", "Decision", "Document", "AgentTask", "AgentTaskStep", "MatchingResult", "ReviewQueue", "DocumentPair", "ValidationIssue", "EmailLog"]
 

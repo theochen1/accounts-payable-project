@@ -133,8 +133,9 @@ class DocumentBridge:
         if document.document_type != "invoice":
             raise ValueError(f"Cannot create Invoice from document type: {document.document_type}")
         
-        # Extract PO number from type_specific_data first (needed for both new and existing invoices)
+        # Extract PO number and contact email from type_specific_data first (needed for both new and existing invoices)
         po_number = None
+        contact_email = None
         if document.type_specific_data:
             po_number_raw = document.type_specific_data.get('po_number')
             logger.info(f"Extracting PO number from document {document.id}: type_specific_data={document.type_specific_data}, po_number_raw={po_number_raw}")
@@ -143,7 +144,14 @@ class DocumentBridge:
                 po_number = po_number_raw.strip() if po_number_raw.strip() else None
             elif po_number_raw:
                 po_number = po_number_raw
-        logger.info(f"Extracted PO number for invoice: {po_number}")
+            
+            # Extract contact email
+            contact_email_raw = document.type_specific_data.get('contact_email')
+            if contact_email_raw and isinstance(contact_email_raw, str):
+                contact_email = contact_email_raw.strip() if contact_email_raw.strip() else None
+            elif contact_email_raw:
+                contact_email = contact_email_raw
+        logger.info(f"Extracted PO number for invoice: {po_number}, contact_email: {contact_email}")
         
         # Check if invoice already exists for this document_number
         existing_invoice = db.query(Invoice).filter(
@@ -156,11 +164,17 @@ class DocumentBridge:
             if po_number and existing_invoice.po_number != po_number:
                 logger.info(f"Updating invoice {existing_invoice.id} PO number: '{existing_invoice.po_number}' -> '{po_number}'")
                 existing_invoice.po_number = po_number
-                db.commit()
-                db.refresh(existing_invoice)
             elif po_number is None and existing_invoice.po_number:
                 # Keep existing PO number if new one is not provided
                 logger.info(f"Keeping existing PO number '{existing_invoice.po_number}' for invoice {existing_invoice.id}")
+            
+            # Update contact email if provided
+            if contact_email and existing_invoice.contact_email != contact_email:
+                logger.info(f"Updating invoice {existing_invoice.id} contact_email: '{existing_invoice.contact_email}' -> '{contact_email}'")
+                existing_invoice.contact_email = contact_email
+            
+            db.commit()
+            db.refresh(existing_invoice)
             return existing_invoice
         
         # Ensure vendor_id is set (required for Invoice)
@@ -174,6 +188,7 @@ class DocumentBridge:
             invoice_date=document.document_date,
             total_amount=document.total_amount,
             currency=document.currency or "USD",
+            contact_email=contact_email,
             pdf_storage_path=document.file_path,
             ocr_json=document.raw_ocr,
             status="pending_match",  # New status for matching workflow

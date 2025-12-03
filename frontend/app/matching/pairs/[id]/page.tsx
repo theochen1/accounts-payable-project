@@ -15,9 +15,10 @@ import { AIReasoningCard } from '@/components/matching/AIReasoningCard';
 import { ApprovalActions } from '@/components/matching/ApprovalActions';
 import { LineItemRow } from '@/components/matching/LineItemRow';
 import { TimelineEvent } from '@/components/matching/TimelineEvent';
+import { EmailDraftModal } from '@/components/matching/EmailDraftModal';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, FileText, Download } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Mail } from 'lucide-react';
 import Link from 'next/link';
 
 export default function PairDetailPage() {
@@ -30,6 +31,7 @@ export default function PairDetailPage() {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
 
   useEffect(() => {
     if (pairId) {
@@ -152,7 +154,7 @@ export default function PairDetailPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="matching">AI Matching</TabsTrigger>
+          <TabsTrigger value="matching">AI Copilot</TabsTrigger>
           <TabsTrigger value="line-items">Line Items</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -171,12 +173,26 @@ export default function PairDetailPage() {
           />
         </TabsContent>
 
-        {/* AI Matching Tab */}
+        {/* AI Copilot Tab */}
         <TabsContent value="matching" className="space-y-6">
           <div className="bg-white border rounded-lg p-6">
-            <h3 className="text-lg font-semibold mb-4">Matching Details</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">AI Copilot</h3>
+              {pair.validation_issues && pair.validation_issues.filter(issue => !issue.resolved).length > 0 && (
+                <Button
+                  onClick={() => setEmailModalOpen(true)}
+                  variant="default"
+                  size="sm"
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Draft Email
+                </Button>
+              )}
+            </div>
+            
+            {/* Matching Details */}
             {pair.matching_result && (
-              <div className="space-y-4">
+              <div className="space-y-4 mb-6">
                 <div>
                   <strong>Match Confidence:</strong>{' '}
                   {pair.confidence_score
@@ -197,12 +213,35 @@ export default function PairDetailPage() {
                 )}
               </div>
             )}
+            
+            {/* AI Reasoning */}
             {pair.reasoning && (
               <div className="mt-6">
                 <AIReasoningCard pair={pair} />
               </div>
             )}
+            
+            {/* Issues List with Escalation */}
+            {pair.validation_issues && pair.validation_issues.filter(issue => !issue.resolved).length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-md font-semibold mb-3">Unresolved Issues</h4>
+                <IssuesList issues={pair.validation_issues.filter(issue => !issue.resolved)} onResolveIssue={handleResolveIssue} />
+              </div>
+            )}
           </div>
+          
+          {/* Email Draft Modal */}
+          <EmailDraftModal
+            open={emailModalOpen}
+            onOpenChange={setEmailModalOpen}
+            pairId={pairId}
+            issueIds={pair.validation_issues
+              ?.filter(issue => !issue.resolved)
+              .map(issue => issue.id)}
+            onEmailSent={() => {
+              loadPairDetail(); // Reload to refresh data
+            }}
+          />
         </TabsContent>
 
         {/* Line Items Tab */}
