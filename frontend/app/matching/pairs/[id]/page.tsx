@@ -18,7 +18,7 @@ import { TimelineEvent } from '@/components/matching/TimelineEvent';
 import { EmailDraftModal } from '@/components/matching/EmailDraftModal';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, FileText, Download, Mail } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Mail, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 
 export default function PairDetailPage() {
@@ -240,22 +240,46 @@ export default function PairDetailPage() {
           )}
           
           {/* Issues List */}
-          {pair.validation_issues && pair.validation_issues.length > 0 && (
-            <div className="bg-white border rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">
+          <div className="bg-white border rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">
                 Validation Issues
-                {pair.validation_issues.filter(issue => !issue.resolved).length > 0 && (
+                {pair.validation_issues && pair.validation_issues.filter(issue => !issue.resolved).length > 0 && (
                   <span className="ml-2 text-sm font-normal text-gray-600">
                     ({pair.validation_issues.filter(issue => !issue.resolved).length} unresolved)
                   </span>
                 )}
               </h3>
+              {pair.reasoning && (!pair.validation_issues || pair.validation_issues.length === 0) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await pairsApi.syncIssues(pairId);
+                      loadPairDetail();
+                    } catch (error) {
+                      console.error('Failed to sync issues:', error);
+                    }
+                  }}
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Sync Issues
+                </Button>
+              )}
+            </div>
+            {pair.validation_issues && pair.validation_issues.length > 0 ? (
               <IssuesList 
                 issues={pair.validation_issues} 
                 onResolveIssue={handleResolveIssue} 
               />
-            </div>
-          )}
+            ) : (
+              <p className="text-gray-500 text-sm">
+                No validation issues found for this document pair.
+                {pair.reasoning && " Click 'Sync Issues' to extract issues from the AI analysis."}
+              </p>
+            )}
+          </div>
           
           {/* Email Draft Modal */}
           <EmailDraftModal

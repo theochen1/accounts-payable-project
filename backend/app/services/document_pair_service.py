@@ -58,7 +58,9 @@ class DocumentPairService:
         ).first()
         
         if existing:
-            logger.info(f"Document pair already exists for invoice {invoice_id}, PO {po_id}")
+            logger.info(f"Document pair already exists for invoice {invoice_id}, PO {po_id} - syncing issues")
+            # Sync issues from matching result in case they were updated
+            self._sync_issues_from_matching(existing, matching_result_id, db)
             return existing
         
         # Load matching result
@@ -578,7 +580,10 @@ class DocumentPairService:
         issues = []
         
         if not matching_result.issues:
+            logger.info(f"No issues in matching result for pair {pair_id}")
             return issues
+        
+        logger.info(f"Extracting {len(matching_result.issues)} issues from matching result for pair {pair_id}")
         
         for issue_data in matching_result.issues:
             # Handle both dict and MatchingIssueV2 objects
@@ -608,7 +613,7 @@ class DocumentPairService:
                 details.get("po_unit_price")
             )
             
-            issues.append({
+            issue_record = {
                 "category": issue_dict.get("category", "unknown"),
                 "severity": issue_dict.get("severity", "low"),
                 "field": field,
@@ -616,10 +621,73 @@ class DocumentPairService:
                 "invoice_value": invoice_value,
                 "po_value": po_value,
                 "suggestion": None,  # Could be extracted from LLM reasoning
-                "line_number": issue_dict.get("line_number")
-            })
+                # Note: line_number is stored in description/field, not as separate column
+            }
+            issues.append(issue_record)
+            logger.debug(f"Extracted issue: {issue_record['category']} - {issue_record['description'][:50]}...")
         
+        logger.info(f"Successfully extracted {len(issues)} validation issues for pair {pair_id}")
         return issues
+    
+    def _sync_issues_from_matching(
+        self,
+        pair: DocumentPair,
+        matching_result_id: UUID,
+        db: Session
+    ) -> None:
+        """
+        Sync validation issues from matching result.
+        Deletes unresolved issues and recreates them from the matching result.
+        
+        Args:
+            pair: Existing DocumentPair
+            matching_result_id: Matching result UUID to sync from
+            db: Database session
+        """
+        # Load the matching result
+        matching_result = db.query(MatchingResult).filter(
+            MatchingResult.id == matching_result_id
+        ).first()
+        
+        if not matching_result:
+            logger.warning(f"Cannot sync issues: matching result {matching_result_id} not found")
+            return
+        
+        # Update pair's matching result reference if different
+        if pair.matching_result_id != matching_result_id:
+            pair.matching_result_id = matching_result_id
+        
+        # Delete existing UNRESOLVED validation issues (keep resolved ones)
+        deleted_count = db.query(ValidationIssue).filter(
+            ValidationIssue.document_pair_id == pair.id,
+            ValidationIssue.resolved == False
+        ).delete(synchronize_session='fetch')
+        
+        logger.info(f"Deleted {deleted_count} unresolved issues for pair {pair.id}")
+        
+        # Extract new issues from matching result
+        new_issues = self._extract_issues_from_matching(matching_result, pair.id)
+        
+        # Create new validation issues
+        for issue_data in new_issues:
+            validation_issue = ValidationIssue(
+                document_pair_id=pair.id,
+                **issue_data
+            )
+            db.add(validation_issue)
+        
+        # Update pair metadata
+        pair.requires_review = matching_result.match_status == "needs_review"
+        pair.has_critical_issues = any(
+            issue.get("severity") == "critical"
+            for issue in (matching_result.issues or [])
+        )
+        
+        # Update issue count
+        pair.issue_count = len(new_issues)
+        
+        db.commit()
+        logger.info(f"Synced {len(new_issues)} issues from matching result to pair {pair.id}")
     
     def _calculate_similarity(self, str1: str, str2: str) -> float:
         """

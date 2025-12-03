@@ -348,3 +348,25 @@ def reject_pair(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+
+@router.post("/{pair_id}/sync-issues", response_model=DocumentPairDetail)
+def sync_issues(pair_id: UUID, db: Session = Depends(get_db)):
+    """
+    Re-sync validation issues from the matching result.
+    Useful when matching was re-run or issues weren't properly extracted.
+    """
+    from app.models import DocumentPair
+    
+    pair = db.query(DocumentPair).filter(DocumentPair.id == pair_id).first()
+    if not pair:
+        raise HTTPException(status_code=404, detail="Document pair not found")
+    
+    if not pair.matching_result_id:
+        raise HTTPException(status_code=400, detail="No matching result associated with this pair")
+    
+    try:
+        document_pair_service._sync_issues_from_matching(pair, pair.matching_result_id, db)
+        return get_pair(pair_id, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to sync issues: {str(e)}")
+

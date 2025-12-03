@@ -650,6 +650,11 @@ export const pairsApi = {
     });
     return response.data;
   },
+
+  syncIssues: async (pairId: string): Promise<DocumentPairDetail> => {
+    const response = await api.post(`/api/matching/pairs/${pairId}/sync-issues`);
+    return response.data;
+  },
 };
 
 // Email API types and functions
