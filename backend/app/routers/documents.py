@@ -546,7 +546,7 @@ async def finalize_document(
     from app.services.document_bridge import document_bridge
     
     created_record = None
-        if document.document_type == "invoice":
+    if document.document_type == "invoice":
         try:
             invoice = document_bridge.create_invoice_from_document(document, db)
             created_record = {"type": "invoice", "id": invoice.id, "invoice_number": invoice.invoice_number}
@@ -565,13 +565,13 @@ async def finalize_document(
                     if matching_result.match_status == "needs_review":
                         review_queue_service.add_to_queue(matching_result, db)
                         logger.info(f"Added invoice {invoice.id} to review queue")
-        else:
+                    else:
                         logger.info(f"Invoice {invoice.id} matched successfully")
-    except Exception as e:
+                except Exception as e:
                     logger.error(f"Error running matching for invoice {invoice.id}: {e}", exc_info=True)
                     # Continue anyway - matching can be retried later
         
-    except Exception as e:
+        except Exception as e:
             logger.error(f"Error creating Invoice from Document {document_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to create Invoice: {str(e)}")
     
@@ -580,7 +580,7 @@ async def finalize_document(
             po = document_bridge.create_po_from_document(document, db)
             created_record = {"type": "purchase_order", "id": po.id, "po_number": po.po_number}
             logger.info(f"Created PurchaseOrder {po.id} from Document {document_id}")
-    except Exception as e:
+        except Exception as e:
             logger.error(f"Error creating PurchaseOrder from Document {document_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to create PurchaseOrder: {str(e)}")
     
