@@ -524,6 +524,7 @@ export interface ValidationIssue {
   severity: 'critical' | 'warning' | 'info';
   field?: string;
   description: string;
+  line_number?: number;
   invoice_value?: any;
   po_value?: any;
   suggestion?: string;

@@ -621,7 +621,7 @@ class DocumentPairService:
                 "invoice_value": invoice_value,
                 "po_value": po_value,
                 "suggestion": None,  # Could be extracted from LLM reasoning
-                # Note: line_number is stored in description/field, not as separate column
+                "line_number": issue_dict.get("line_number"),  # Line number for line-item issues
             }
             issues.append(issue_record)
             logger.debug(f"Extracted issue: {issue_record['category']} - {issue_record['description'][:50]}...")

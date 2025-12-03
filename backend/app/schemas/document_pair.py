@@ -34,6 +34,7 @@ class ValidationIssueResponse(BaseModel):
     severity: str
     field: Optional[str] = None
     description: str
+    line_number: Optional[int] = None
     invoice_value: Optional[Any] = None
     po_value: Optional[Any] = None
     suggestion: Optional[str] = None

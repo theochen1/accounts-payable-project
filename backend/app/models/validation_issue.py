@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -17,6 +17,7 @@ class ValidationIssue(Base):
     severity = Column(String(20), nullable=False, index=True)  # critical/warning/info
     field = Column(String(100), nullable=True)  # Which field has the issue
     description = Column(Text, nullable=False)
+    line_number = Column(Integer, nullable=True)  # Line number for line-item issues
 
     invoice_value = Column(JSONB, nullable=True)  # The value from invoice
     po_value = Column(JSONB, nullable=True)       # The value from PO
