@@ -370,7 +370,7 @@ class DocumentPairService:
             timeline.append(TimelineEntry(
                 timestamp=pair.matched_at,
                 event_type="matched",
-                description=f"Invoice {pair.invoice.invoice_number} matched to PO {pair.po_number or 'N/A'}",
+                description=f"Invoice {pair.invoice.invoice_number} matched to PO {pair.purchase_order.po_number if pair.purchase_order else 'N/A'}",
                 actor="matching_agent",
                 details={
                     "matching_result_id": str(pair.matching_result_id),

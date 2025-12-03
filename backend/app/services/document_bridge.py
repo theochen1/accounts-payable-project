@@ -133,19 +133,7 @@ class DocumentBridge:
         if document.document_type != "invoice":
             raise ValueError(f"Cannot create Invoice from document type: {document.document_type}")
         
-        # Check if invoice already exists for this document_number
-        existing_invoice = db.query(Invoice).filter(
-            Invoice.invoice_number == document.document_number
-        ).first()
-        
-        if existing_invoice:
-            logger.info(f"Invoice {document.document_number} already exists, skipping creation")
-            return existing_invoice
-        
-        # Ensure vendor_id is set (required for Invoice)
-        vendor_id = self._ensure_vendor_id(document, db)
-        
-        # Extract PO number from type_specific_data
+        # Extract PO number from type_specific_data first (needed for both new and existing invoices)
         po_number = None
         if document.type_specific_data:
             po_number_raw = document.type_specific_data.get('po_number')
@@ -155,7 +143,28 @@ class DocumentBridge:
                 po_number = po_number_raw.strip() if po_number_raw.strip() else None
             elif po_number_raw:
                 po_number = po_number_raw
-        logger.info(f"Extracted PO number for invoice creation: {po_number}")
+        logger.info(f"Extracted PO number for invoice: {po_number}")
+        
+        # Check if invoice already exists for this document_number
+        existing_invoice = db.query(Invoice).filter(
+            Invoice.invoice_number == document.document_number
+        ).first()
+        
+        if existing_invoice:
+            logger.info(f"Invoice {document.document_number} already exists (id: {existing_invoice.id}), updating with new data")
+            # Update existing invoice with PO number if provided
+            if po_number and existing_invoice.po_number != po_number:
+                logger.info(f"Updating invoice {existing_invoice.id} PO number: '{existing_invoice.po_number}' -> '{po_number}'")
+                existing_invoice.po_number = po_number
+                db.commit()
+                db.refresh(existing_invoice)
+            elif po_number is None and existing_invoice.po_number:
+                # Keep existing PO number if new one is not provided
+                logger.info(f"Keeping existing PO number '{existing_invoice.po_number}' for invoice {existing_invoice.id}")
+            return existing_invoice
+        
+        # Ensure vendor_id is set (required for Invoice)
+        vendor_id = self._ensure_vendor_id(document, db)
         
         # Create Invoice record
         invoice = Invoice(
