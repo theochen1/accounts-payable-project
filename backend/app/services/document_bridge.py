@@ -41,6 +41,21 @@ class DocumentBridge:
             logger.info(f"Invoice {document.document_number} already exists, skipping creation")
             return existing_invoice
         
+        # Ensure vendor_id is set (required for Invoice)
+        vendor_id = document.vendor_id
+        if vendor_id is None:
+            # Try to get vendor_id from vendor_match if available
+            if document.vendor_match and isinstance(document.vendor_match, dict):
+                vendor_id = document.vendor_match.get('matched_vendor_id')
+            
+            # If still None, raise an error
+            if vendor_id is None:
+                raise ValueError(
+                    f"Cannot create Invoice: vendor_id is required but not set. "
+                    f"Please verify the document and select a vendor. "
+                    f"Document vendor_name: {document.vendor_name}"
+                )
+        
         # Extract PO number from type_specific_data
         po_number = None
         if document.type_specific_data:
@@ -49,7 +64,7 @@ class DocumentBridge:
         # Create Invoice record
         invoice = Invoice(
             invoice_number=document.document_number,
-            vendor_id=document.vendor_id,
+            vendor_id=vendor_id,
             po_number=po_number,
             invoice_date=document.document_date,
             total_amount=document.total_amount,
@@ -119,6 +134,21 @@ class DocumentBridge:
             logger.info(f"PurchaseOrder {document.document_number} already exists, skipping creation")
             return existing_po
         
+        # Ensure vendor_id is set (required for PurchaseOrder)
+        vendor_id = document.vendor_id
+        if vendor_id is None:
+            # Try to get vendor_id from vendor_match if available
+            if document.vendor_match and isinstance(document.vendor_match, dict):
+                vendor_id = document.vendor_match.get('matched_vendor_id')
+            
+            # If still None, raise an error
+            if vendor_id is None:
+                raise ValueError(
+                    f"Cannot create PurchaseOrder: vendor_id is required but not set. "
+                    f"Please verify the document and select a vendor. "
+                    f"Document vendor_name: {document.vendor_name}"
+                )
+        
         # Extract PO-specific fields from type_specific_data
         requester_email = None
         order_date = document.document_date  # Default to document_date
@@ -135,7 +165,7 @@ class DocumentBridge:
         # Create PurchaseOrder record
         po = PurchaseOrder(
             po_number=document.document_number,
-            vendor_id=document.vendor_id,
+            vendor_id=vendor_id,
             total_amount=document.total_amount,
             currency=document.currency or "USD",
             status="open",  # Will be updated to fully_matched/partially_matched after matching

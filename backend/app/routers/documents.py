@@ -571,6 +571,10 @@ async def finalize_document(
                     logger.error(f"Error running matching for invoice {invoice.id}: {e}", exc_info=True)
                     # Continue anyway - matching can be retried later
         
+        except ValueError as e:
+            # Validation errors (e.g., missing vendor_id)
+            logger.error(f"Validation error creating Invoice from Document {document_id}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             logger.error(f"Error creating Invoice from Document {document_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to create Invoice: {str(e)}")
@@ -580,6 +584,10 @@ async def finalize_document(
             po = document_bridge.create_po_from_document(document, db)
             created_record = {"type": "purchase_order", "id": po.id, "po_number": po.po_number}
             logger.info(f"Created PurchaseOrder {po.id} from Document {document_id}")
+        except ValueError as e:
+            # Validation errors (e.g., missing vendor_id)
+            logger.error(f"Validation error creating PurchaseOrder from Document {document_id}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             logger.error(f"Error creating PurchaseOrder from Document {document_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to create PurchaseOrder: {str(e)}")
