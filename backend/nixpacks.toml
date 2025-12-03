@@ -1,6 +1,8 @@
-# Python auto-detection via requirements.txt and runtime.txt
-# Poppler required for pdf2image
+# Explicitly tell Railway to use Python provider
+# This prevents Node.js detection from frontend package.json
+providers = ["python"]
 
+# Poppler required for pdf2image
 [phases.setup]
 nixPkgs = ["poppler_utils"]
 
