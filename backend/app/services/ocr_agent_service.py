@@ -378,6 +378,17 @@ IMPORTANT:
         if document_type == "purchase_order":
             return """Analyze this PURCHASE ORDER document VERY CAREFULLY.
 
+VENDOR IDENTIFICATION FOR PURCHASE ORDERS (CRITICAL):
+- On a Purchase Order, the company at the TOP/LETTERHEAD is the BUYER (the company placing the order)
+- The VENDOR/SUPPLIER is the company in the "TO:", "Vendor:", "Supplier:", or "Ship To:" field
+- This is the OPPOSITE of an invoice where the letterhead IS the vendor
+
+Example:
+  Letterhead: "Everchem Specialty Chemicals" = BUYER (issuing the PO)
+  TO: "Wanhua Chemical" = VENDOR (supplier fulfilling the order)
+  
+  vendor_name should be "Wanhua Chemical" (NOT Everchem)
+
 CRITICAL: Pay close attention to the TABLE COLUMNS. Common column headers include:
 - "Date" - when the line item was ordered
 - "Item Description" / "Description" - product name or SKU
@@ -395,7 +406,7 @@ VERIFY YOUR MATH: For each line item, check that:
 
 Extract and return JSON using this EXACT structure:
 {
-    "vendor_name": "Company/Vendor name (supplier)",
+    "vendor_name": "Company name from TO/Vendor/Supplier field (NOT the letterhead/buyer)",
     "document_number": "Purchase order number",
     "document_date": "YYYY-MM-DD format (order date)",
     "total_amount": number (grand total),
@@ -410,16 +421,17 @@ Extract and return JSON using this EXACT structure:
         }
     ],
     "type_specific": {
+        "buyer_name": "Company name from letterhead/header (company issuing the PO)",
         "requester_name": "Name of person requesting the PO",
         "requester_email": "Email address of person requesting the PO (look for any email addresses on the document - requester, contact, or vendor email)",
         "ship_to_address": "Shipping address if present"
     },
     "table_columns_found": ["Date", "Description", "Price", "Qty", "Total"],
-    "extraction_notes": "Any uncertainty about column interpretation"
+    "extraction_notes": "Any uncertainty about column interpretation or vendor identification"
 }
 
 IMPORTANT: Use "document_number" (not "po_number") and "document_date" (not "order_date") for common fields.
-Put PO-specific fields like requester_email in the "type_specific" section.
+Put PO-specific fields like buyer_name, requester_email in the "type_specific" section.
 
 CRITICAL: Look carefully for ANY email addresses on the document - check headers, footers, contact sections, and signature areas. Extract the requester_email if found.
 
