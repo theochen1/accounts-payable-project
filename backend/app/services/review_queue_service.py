@@ -47,10 +47,21 @@ class ReviewQueueService:
         primary_issue = self._get_primary_issue(matching_result.issues)
         sla_deadline = self._calculate_sla(priority)
         
+        # Handle category - can be enum or string depending on how it was loaded
+        if primary_issue:
+            if hasattr(primary_issue.category, 'value'):
+                # It's an enum, get the value
+                issue_category = primary_issue.category.value
+            else:
+                # It's already a string
+                issue_category = primary_issue.category
+        else:
+            issue_category = "unknown"
+        
         queue_item = ReviewQueue(
             matching_result_id=matching_result.id,
             priority=priority,
-            issue_category=primary_issue.category.value if primary_issue else "unknown",
+            issue_category=issue_category,
             sla_deadline=sla_deadline
         )
         
@@ -153,11 +164,25 @@ class ReviewQueueService:
         for issue in issues:
             if isinstance(issue, dict):
                 try:
-                    issue_objects.append(MatchingIssueV2(**issue))
-                except Exception:
+                    # Ensure category is properly converted if it's a string
+                    issue_dict = issue.copy()
+                    if isinstance(issue_dict.get("category"), str):
+                        # Try to convert string to enum
+                        try:
+                            issue_dict["category"] = IssueCategory(issue_dict["category"])
+                        except (ValueError, KeyError):
+                            # If conversion fails, log and skip
+                            logger.warning(f"Invalid category value: {issue_dict.get('category')}")
+                            continue
+                    issue_objects.append(MatchingIssueV2(**issue_dict))
+                except Exception as e:
+                    logger.warning(f"Error converting issue to MatchingIssueV2: {e}")
                     continue
-            else:
+            elif isinstance(issue, MatchingIssueV2):
                 issue_objects.append(issue)
+            else:
+                logger.warning(f"Unexpected issue type: {type(issue)}")
+                continue
         
         if not issue_objects:
             return None

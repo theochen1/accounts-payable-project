@@ -565,5 +565,20 @@ Output format (JSON):
         
         logger.info(f"Saved matching result {matching_result.id} for invoice {invoice.id}: {status} (confidence: {confidence:.2f})")
         
+        # Create document pair if PO was found
+        if po:
+            try:
+                from app.services.document_pair_service import document_pair_service
+                document_pair = document_pair_service.create_pair(
+                    invoice_id=invoice.id,
+                    po_id=po.id,
+                    matching_result_id=matching_result.id,
+                    db=self.db
+                )
+                logger.info(f"Created document pair {document_pair.id} for invoice {invoice.id}, PO {po.id}")
+            except Exception as e:
+                logger.error(f"Error creating document pair: {e}", exc_info=True)
+                # Don't fail the matching process if pair creation fails
+        
         return matching_result
 

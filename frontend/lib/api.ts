@@ -510,3 +510,149 @@ export const matchingApi = {
   },
 };
 
+// Document Pairs API interfaces
+export type WorkflowStage = 'uploaded' | 'extracted' | 'matched' | 'validated' | 'approved';
+export type PairStatus = 'in_progress' | 'needs_review' | 'approved' | 'rejected';
+
+export interface StageTimestamps {
+  uploaded?: string;
+  extracted?: string;
+  matched?: string;
+  validated?: string;
+  approved?: string;
+}
+
+export interface ValidationIssue {
+  id: string;
+  category: string;
+  severity: 'critical' | 'warning' | 'info';
+  field?: string;
+  description: string;
+  invoice_value?: any;
+  po_value?: any;
+  suggestion?: string;
+  resolved: boolean;
+  resolved_by?: string;
+  resolved_at?: string;
+  resolution_action?: string;
+  resolution_notes?: string;
+  created_at: string;
+}
+
+export interface DocumentPairSummary {
+  id: string;
+  invoice_id: number;
+  po_id?: number;
+  invoice_number: string;
+  po_number?: string;
+  vendor_name?: string;
+  total_amount?: number;
+  current_stage: WorkflowStage;
+  overall_status: PairStatus;
+  requires_review: boolean;
+  issue_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentPairDetail extends DocumentPairSummary {
+  invoice: InvoiceDetail;
+  purchase_order?: PurchaseOrder;
+  matching_result?: MatchingResultV2;
+  validation_issues: ValidationIssue[];
+  stage_timestamps: StageTimestamps;
+  confidence_score?: number;
+  reasoning?: string;
+}
+
+export interface FieldComparison {
+  field_name: string;
+  invoice_value: any;
+  po_value: any;
+  match: boolean;
+  similarity?: number;
+  diff_explanation?: string;
+  severity?: string;
+}
+
+export interface LineItemComparison {
+  line_number: number;
+  invoice_line?: Record<string, any>;
+  po_line?: Record<string, any>;
+  field_comparisons: FieldComparison[];
+  overall_match: 'perfect' | 'partial' | 'mismatch' | 'missing';
+  issues: ValidationIssue[];
+}
+
+export interface TimelineEntry {
+  timestamp: string;
+  event_type: string;
+  description: string;
+  actor?: string;
+  details?: Record<string, any>;
+}
+
+export const pairsApi = {
+  list: async (params?: {
+    status?: string[];
+    stage?: string[];
+    has_issues?: boolean;
+    vendor?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DocumentPairSummary[]> => {
+    const response = await api.get('/api/matching/pairs', { params });
+    return response.data;
+  },
+
+  getById: async (pairId: string): Promise<DocumentPairDetail> => {
+    const response = await api.get(`/api/matching/pairs/${pairId}`);
+    return response.data;
+  },
+
+  getComparison: async (pairId: string): Promise<LineItemComparison[]> => {
+    const response = await api.get(`/api/matching/pairs/${pairId}/comparison`);
+    return response.data;
+  },
+
+  getTimeline: async (pairId: string): Promise<TimelineEntry[]> => {
+    const response = await api.get(`/api/matching/pairs/${pairId}/timeline`);
+    return response.data;
+  },
+
+  resolveIssue: async (
+    pairId: string,
+    issueId: string,
+    resolution: 'accepted' | 'overridden' | 'corrected',
+    notes?: string
+  ): Promise<ValidationIssue> => {
+    const response = await api.post(
+      `/api/matching/pairs/${pairId}/issues/${issueId}/resolve`,
+      {
+        resolution_action: resolution,
+        notes,
+      }
+    );
+    return response.data;
+  },
+
+  advanceStage: async (pairId: string): Promise<DocumentPairDetail> => {
+    const response = await api.post(`/api/matching/pairs/${pairId}/advance`);
+    return response.data;
+  },
+
+  approve: async (pairId: string, notes?: string): Promise<DocumentPairDetail> => {
+    const response = await api.post(`/api/matching/pairs/${pairId}/approve`, {
+      notes,
+    });
+    return response.data;
+  },
+
+  reject: async (pairId: string, reason: string): Promise<DocumentPairDetail> => {
+    const response = await api.post(`/api/matching/pairs/${pairId}/reject`, {
+      notes: reason,
+    });
+    return response.data;
+  },
+};
+
