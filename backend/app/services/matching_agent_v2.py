@@ -340,7 +340,7 @@ class MatchingAgentV2:
                     line_number=inv_line.line_no
                 ))
             
-            # SKU/description match (only if both have SKUs - skip if either is missing)
+            # SKU match (only if both have SKUs - skip if either is missing)
             # Only validate SKU match if both invoice and PO have SKU values
             if inv_line.sku and po_line.sku:
                 if inv_line.sku != po_line.sku:
@@ -350,11 +350,36 @@ class MatchingAgentV2:
                         message=f"Line {inv_line.line_no}: SKU mismatch (invoice: {inv_line.sku}, PO: {po_line.sku})",
                         details={
                             "invoice_sku": inv_line.sku,
-                            "po_sku": po_line.sku
+                            "po_sku": po_line.sku,
+                            "field": "sku"
                         },
                         line_number=inv_line.line_no
                     ))
-            # If SKUs don't exist, skip SKU validation entirely
+            
+            # Description match - check if descriptions are significantly different
+            if inv_line.description and po_line.description:
+                inv_desc = inv_line.description.strip().lower()
+                po_desc = po_line.description.strip().lower()
+                
+                # If descriptions are not identical (case-insensitive)
+                if inv_desc != po_desc:
+                    # Calculate similarity to avoid flagging minor differences
+                    similarity = self._calculate_description_similarity(inv_line.description, po_line.description)
+                    
+                    # Flag if similarity is below threshold (e.g., < 0.8 means significant difference)
+                    if similarity < 0.8:
+                        issues.append(MatchingIssueV2(
+                            category=IssueCategory.LINE_ITEM_DISCREPANCY,
+                            severity="medium",
+                            message=f"Line {inv_line.line_no}: Description mismatch (invoice: '{inv_line.description}', PO: '{po_line.description}')",
+                            details={
+                                "invoice_description": inv_line.description,
+                                "po_description": po_line.description,
+                                "field": "description",
+                                "similarity": similarity
+                            },
+                            line_number=inv_line.line_no
+                        ))
         
         # Check for unmatched PO lines
         for po_line in po_lines:
@@ -529,6 +554,50 @@ Output format (JSON):
                 for line in (po.po_lines or [])
             ]
         }
+    
+    def _calculate_description_similarity(self, desc1: str, desc2: str) -> float:
+        """
+        Calculate similarity between two descriptions (0.0 to 1.0).
+        Uses simple character-based similarity for now.
+        """
+        if not desc1 or not desc2:
+            return 0.0
+        
+        desc1_lower = desc1.strip().lower()
+        desc2_lower = desc2.strip().lower()
+        
+        if desc1_lower == desc2_lower:
+            return 1.0
+        
+        # Simple word-based similarity
+        words1 = set(desc1_lower.split())
+        words2 = set(desc2_lower.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        
+        if union == 0:
+            return 0.0
+        
+        # Word overlap similarity
+        word_similarity = intersection / union
+        
+        # Also check character-level similarity for partial matches
+        char_set1 = set(desc1_lower.replace(' ', ''))
+        char_set2 = set(desc2_lower.replace(' ', ''))
+        
+        if not char_set1 or not char_set2:
+            return word_similarity
+        
+        char_intersection = len(char_set1 & char_set2)
+        char_union = len(char_set1 | char_set2)
+        char_similarity = char_intersection / char_union if char_union > 0 else 0.0
+        
+        # Return average of word and character similarity
+        return (word_similarity + char_similarity) / 2.0
     
     def _calculate_result(self, issues: List[MatchingIssueV2]) -> tuple[str, float]:
         """

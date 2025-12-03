@@ -591,8 +591,22 @@ class DocumentPairService:
             field = issue_dict.get("details", {}).get("field") or issue_dict.get("field")
             
             # Extract invoice_value and po_value from details
-            invoice_value = issue_dict.get("details", {}).get("invoice_value")
-            po_value = issue_dict.get("details", {}).get("po_value")
+            # Handle various field types: invoice_value/po_value, invoice_description/po_description, etc.
+            details = issue_dict.get("details", {})
+            invoice_value = (
+                details.get("invoice_value") or 
+                details.get("invoice_description") or
+                details.get("invoice_sku") or
+                details.get("invoice_qty") or
+                details.get("invoice_unit_price")
+            )
+            po_value = (
+                details.get("po_value") or 
+                details.get("po_description") or
+                details.get("po_sku") or
+                details.get("po_qty") or
+                details.get("po_unit_price")
+            )
             
             issues.append({
                 "category": issue_dict.get("category", "unknown"),
