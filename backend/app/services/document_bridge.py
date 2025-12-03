@@ -149,11 +149,13 @@ class DocumentBridge:
         po_number = None
         if document.type_specific_data:
             po_number_raw = document.type_specific_data.get('po_number')
+            logger.info(f"Extracting PO number from document {document.id}: type_specific_data={document.type_specific_data}, po_number_raw={po_number_raw}")
             # Strip whitespace and convert empty strings to None
             if po_number_raw and isinstance(po_number_raw, str):
                 po_number = po_number_raw.strip() if po_number_raw.strip() else None
             elif po_number_raw:
                 po_number = po_number_raw
+        logger.info(f"Extracted PO number for invoice creation: {po_number}")
         
         # Create Invoice record
         invoice = Invoice(
@@ -202,7 +204,7 @@ class DocumentBridge:
         db.commit()
         db.refresh(invoice)
         
-        logger.info(f"Created Invoice {invoice.id} from Document {document.id} (invoice_number: {invoice.invoice_number})")
+        logger.info(f"Created Invoice {invoice.id} from Document {document.id} (invoice_number: {invoice.invoice_number}, po_number: {repr(invoice.po_number)})")
         return invoice
     
     def create_po_from_document(self, document: Document, db: Session) -> PurchaseOrder:

@@ -50,6 +50,7 @@ class MatchingAgentV2:
         
         # Load invoice and find PO
         invoice = self._load_invoice(invoice_id)
+        logger.info(f"Invoice {invoice_id} loaded: po_number={repr(invoice.po_number)}, invoice_number={invoice.invoice_number}")
         
         # Clean and update PO number if it has whitespace
         if invoice.po_number and isinstance(invoice.po_number, str):
@@ -61,6 +62,7 @@ class MatchingAgentV2:
                 logger.info(f"Cleaned PO number for invoice {invoice_id}: '{original_po}' -> '{invoice.po_number}'")
         
         po = self._find_po(invoice)
+        logger.info(f"PO lookup result for invoice {invoice_id}: po_id={po.id if po else None}, po_number={po.po_number if po else None}")
         
         # Run validation decision tree
         issues = []
@@ -85,6 +87,7 @@ class MatchingAgentV2:
         invoice = self.db.query(Invoice).filter(Invoice.id == invoice_id).first()
         if not invoice:
             raise ValueError(f"Invoice {invoice_id} not found")
+        logger.info(f"Loaded invoice {invoice_id} from DB: po_number={repr(invoice.po_number)}, invoice_number={invoice.invoice_number}, vendor_id={invoice.vendor_id}")
         return invoice
     
     def _find_po(self, invoice: Invoice) -> Optional[PurchaseOrder]:
