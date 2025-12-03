@@ -18,6 +18,7 @@ export interface Invoice {
   total_amount?: number;
   currency: string;
   status: string;
+  contact_email?: string;
   created_at: string;
 }
 
@@ -29,6 +30,7 @@ export interface InvoiceDetail extends Invoice {
   invoice_lines: InvoiceLine[];
   purchase_order?: PurchaseOrder;
   matching_result?: MatchingResult;
+  contact_email?: string;
 }
 
 export interface InvoiceLine {
