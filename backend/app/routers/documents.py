@@ -347,7 +347,7 @@ async def process_ocr(document_id: int, db: Session = Depends(get_db)):
             else:
                 ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         else:
-        ocr_data = await active_ocr_service.process_file(file_content, document.filename)
+            ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         
         # Normalize OCR output using FieldMapper
         # First, ensure document_type is passed correctly (handle 'po' -> 'purchase_order' mapping)
