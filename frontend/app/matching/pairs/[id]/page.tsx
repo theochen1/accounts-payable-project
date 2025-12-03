@@ -129,7 +129,7 @@ export default function PairDetailPage() {
                 View Invoice
               </Button>
             )}
-            {pair.purchase_order?.pdf_storage_path && (
+            {pair.purchase_order && (
               <Button variant="outline" size="sm">
                 <FileText className="w-4 h-4 mr-2" />
                 View PO
@@ -277,12 +277,7 @@ export default function PairDetailPage() {
                       ? `$${Number(pair.purchase_order.total_amount).toFixed(2)}`
                       : 'N/A'}
                   </div>
-                  {pair.purchase_order.pdf_storage_path && (
-                    <Button variant="outline" size="sm" className="mt-4">
-                      <Download className="w-4 h-4 mr-2" />
-                      Download PO PDF
-                    </Button>
-                  )}
+                  {/* Note: PO PDF storage path not available in current schema */}
                 </div>
               </div>
             )}
