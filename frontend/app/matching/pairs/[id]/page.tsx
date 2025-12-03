@@ -175,24 +175,39 @@ export default function PairDetailPage() {
 
         {/* AI Copilot Tab */}
         <TabsContent value="matching" className="space-y-6">
+          {/* Email Escalation Section */}
           <div className="bg-white border rounded-lg p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">AI Copilot</h3>
-              {pair.validation_issues && pair.validation_issues.filter(issue => !issue.resolved).length > 0 && (
-                <Button
-                  onClick={() => setEmailModalOpen(true)}
-                  variant="default"
-                  size="sm"
-                >
-                  <Mail className="w-4 h-4 mr-2" />
-                  Draft Email
-                </Button>
-              )}
+              <div>
+                <h3 className="text-lg font-semibold">Email Escalation</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Draft and send professional emails to resolve invoice-PO discrepancies
+                </p>
+              </div>
+              <Button
+                onClick={() => setEmailModalOpen(true)}
+                variant="default"
+                size="sm"
+                disabled={!pair.invoice?.contact_email}
+              >
+                <Mail className="w-4 h-4 mr-2" />
+                Draft Email
+              </Button>
             </div>
-            
-            {/* Matching Details */}
-            {pair.matching_result && (
-              <div className="space-y-4 mb-6">
+            {!pair.invoice?.contact_email && (
+              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  <strong>Note:</strong> Invoice is missing a contact email. Please add a contact email to the invoice to enable email escalation.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Matching Details */}
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">Matching Details</h3>
+            {pair.matching_result ? (
+              <div className="space-y-4">
                 <div>
                   <strong>Match Confidence:</strong>{' '}
                   {pair.confidence_score
@@ -212,23 +227,35 @@ export default function PairDetailPage() {
                   </div>
                 )}
               </div>
-            )}
-            
-            {/* AI Reasoning */}
-            {pair.reasoning && (
-              <div className="mt-6">
-                <AIReasoningCard pair={pair} />
-              </div>
-            )}
-            
-            {/* Issues List with Escalation */}
-            {pair.validation_issues && pair.validation_issues.filter(issue => !issue.resolved).length > 0 && (
-              <div className="mt-6">
-                <h4 className="text-md font-semibold mb-3">Unresolved Issues</h4>
-                <IssuesList issues={pair.validation_issues.filter(issue => !issue.resolved)} onResolveIssue={handleResolveIssue} />
-              </div>
+            ) : (
+              <div className="text-gray-500">No matching details available</div>
             )}
           </div>
+          
+          {/* AI Reasoning */}
+          {pair.reasoning && (
+            <div className="bg-white border rounded-lg p-6">
+              <AIReasoningCard pair={pair} />
+            </div>
+          )}
+          
+          {/* Issues List */}
+          {pair.validation_issues && pair.validation_issues.length > 0 && (
+            <div className="bg-white border rounded-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">
+                Validation Issues
+                {pair.validation_issues.filter(issue => !issue.resolved).length > 0 && (
+                  <span className="ml-2 text-sm font-normal text-gray-600">
+                    ({pair.validation_issues.filter(issue => !issue.resolved).length} unresolved)
+                  </span>
+                )}
+              </h3>
+              <IssuesList 
+                issues={pair.validation_issues} 
+                onResolveIssue={handleResolveIssue} 
+              />
+            </div>
+          )}
           
           {/* Email Draft Modal */}
           <EmailDraftModal
