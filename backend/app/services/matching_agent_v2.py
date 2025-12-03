@@ -50,6 +50,16 @@ class MatchingAgentV2:
         
         # Load invoice and find PO
         invoice = self._load_invoice(invoice_id)
+        
+        # Clean and update PO number if it has whitespace
+        if invoice.po_number and isinstance(invoice.po_number, str):
+            po_number_cleaned = invoice.po_number.strip()
+            if po_number_cleaned != invoice.po_number:
+                original_po = invoice.po_number
+                invoice.po_number = po_number_cleaned if po_number_cleaned else None
+                self.db.commit()
+                logger.info(f"Cleaned PO number for invoice {invoice_id}: '{original_po}' -> '{invoice.po_number}'")
+        
         po = self._find_po(invoice)
         
         # Run validation decision tree
@@ -79,11 +89,18 @@ class MatchingAgentV2:
     
     def _find_po(self, invoice: Invoice) -> Optional[PurchaseOrder]:
         """Find PO by PO number"""
-        if not invoice.po_number:
+        # Clean PO number (strip whitespace, handle empty strings)
+        po_number_cleaned = None
+        if invoice.po_number and isinstance(invoice.po_number, str):
+            po_number_cleaned = invoice.po_number.strip() if invoice.po_number.strip() else None
+        elif invoice.po_number:
+            po_number_cleaned = invoice.po_number
+        
+        if not po_number_cleaned:
             return None
         
         return self.db.query(PurchaseOrder).filter(
-            PurchaseOrder.po_number == invoice.po_number
+            PurchaseOrder.po_number == po_number_cleaned
         ).first()
     
     def _validate_header(self, invoice: Invoice, po: Optional[PurchaseOrder]) -> List[MatchingIssueV2]:
@@ -95,8 +112,14 @@ class MatchingAgentV2:
         """
         issues = []
         
-        # 1. PO number exists
-        if not invoice.po_number:
+        # 1. PO number exists (check for None, empty string, or whitespace-only)
+        po_number_cleaned = None
+        if invoice.po_number and isinstance(invoice.po_number, str):
+            po_number_cleaned = invoice.po_number.strip() if invoice.po_number.strip() else None
+        elif invoice.po_number:
+            po_number_cleaned = invoice.po_number
+        
+        if not po_number_cleaned:
             issues.append(MatchingIssueV2(
                 category=IssueCategory.MISSING_REFERENCE,
                 severity="critical",

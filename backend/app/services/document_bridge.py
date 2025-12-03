@@ -148,7 +148,12 @@ class DocumentBridge:
         # Extract PO number from type_specific_data
         po_number = None
         if document.type_specific_data:
-            po_number = document.type_specific_data.get('po_number')
+            po_number_raw = document.type_specific_data.get('po_number')
+            # Strip whitespace and convert empty strings to None
+            if po_number_raw and isinstance(po_number_raw, str):
+                po_number = po_number_raw.strip() if po_number_raw.strip() else None
+            elif po_number_raw:
+                po_number = po_number_raw
         
         # Create Invoice record
         invoice = Invoice(
