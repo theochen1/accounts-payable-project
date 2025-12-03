@@ -21,6 +21,7 @@ class InvoiceTypeData(BaseModel):
     payment_terms: Optional[str] = None
     due_date: Optional[date] = None
     tax_amount: Optional[Decimal] = None
+    contact_email: Optional[str] = None
 
 
 class PurchaseOrderTypeData(BaseModel):

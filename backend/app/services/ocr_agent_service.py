@@ -662,6 +662,8 @@ Return ONLY the JSON, no markdown."""
                 type_specific['payment_terms'] = data['payment_terms']
             if 'due_date' in data and 'due_date' not in type_specific:
                 type_specific['due_date'] = data['due_date']
+            if 'contact_email' in data and 'contact_email' not in type_specific:
+                type_specific['contact_email'] = data['contact_email']
         elif document_type == "purchase_order":
             if 'requester_email' in data and 'requester_email' not in type_specific:
                 type_specific['requester_email'] = data['requester_email']

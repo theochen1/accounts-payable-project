@@ -258,6 +258,7 @@ export interface InvoiceSaveData {
   invoice_date?: string;
   total_amount?: number;
   currency?: string;
+  contact_email?: string;
   line_items?: {
     line_no: number;
     sku?: string;

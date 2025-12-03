@@ -27,6 +27,7 @@ const invoiceSchema = z.object({
   invoice_date: z.string().optional(),
   total_amount: z.number().optional(),
   currency: z.string().default('USD'),
+  contact_email: z.string().email().optional().or(z.literal('')),
 });
 
 const poSchema = z.object({
@@ -68,6 +69,7 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
           vendor_id: ocrData.vendor_match?.matched_vendor_id || undefined,
           total_amount: ocrData.total_amount || undefined,
           currency: ocrData.currency || 'USD',
+          contact_email: typeSpecificData.contact_email || ocrData.contact_email || '',
         }
       : {
           // For POs: read from unified schema with fallbacks for backward compatibility
@@ -189,6 +191,22 @@ export default function ExtractionForm({ document, onSave, onCancel, isSaving = 
                   {...register('total_amount', { valueAsNumber: true })}
                 />
                 <ConfidenceIndicator confidence={ocrData.confidence?.total_amount} />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Contact Email</label>
+                <Input
+                  type="email"
+                  placeholder="vendor@example.com"
+                  {...register('contact_email')}
+                />
+                <ConfidenceIndicator confidence={ocrData.confidence?.contact_email} />
+                <p className="text-xs text-muted-foreground">
+                  Email address for vendor contact (used for escalation emails)
+                </p>
+                {(errors as any).contact_email && (
+                  <p className="text-xs text-destructive">{(errors as any).contact_email.message as string}</p>
+                )}
               </div>
             </>
           ) : (

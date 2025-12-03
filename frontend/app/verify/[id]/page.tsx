@@ -64,9 +64,10 @@ export default function VerifyPage() {
           total_amount: invoiceData.total_amount,
           currency: invoiceData.currency || 'USD',
           line_items: invoiceData.line_items || [],
-          invoice_data: invoiceData.po_number ? {
-            po_number: invoiceData.po_number,
-          } : undefined,
+          invoice_data: {
+            ...(invoiceData.po_number ? { po_number: invoiceData.po_number } : {}),
+            ...(invoiceData.contact_email ? { contact_email: invoiceData.contact_email } : {}),
+          },
         });
       } else {
         const poData = data as POSaveData;
