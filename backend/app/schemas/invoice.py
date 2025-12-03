@@ -9,7 +9,6 @@ from app.schemas.matching import MatchingResult
 class InvoiceLineResponse(BaseModel):
     id: int
     line_no: int
-    sku: Optional[str]
     description: str
     quantity: Decimal
     unit_price: Decimal

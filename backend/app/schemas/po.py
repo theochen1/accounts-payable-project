@@ -7,7 +7,6 @@ from decimal import Decimal
 class POLineResponse(BaseModel):
     id: int
     line_no: int
-    sku: Optional[str]
     description: str
     quantity: Decimal
     unit_price: Decimal
@@ -18,7 +17,6 @@ class POLineResponse(BaseModel):
 
 class POLineCreate(BaseModel):
     line_no: int
-    sku: Optional[str] = None
     description: str
     quantity: Decimal
     unit_price: Decimal

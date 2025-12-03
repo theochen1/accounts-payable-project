@@ -8,7 +8,6 @@ from decimal import Decimal
 class LineItemBase(BaseModel):
     """Base line item schema"""
     line_no: int
-    sku: Optional[str] = None
     description: str
     quantity: Decimal
     unit_price: Decimal

@@ -185,6 +185,7 @@ def _build_ocr_data_from_document(document: Document) -> Dict:
             'currency': document.currency,
             'line_items': document.line_items or [],
             'vendor_match': document.vendor_match,
+            'type_specific_data': document.type_specific_data or {},  # Include full type_specific_data for frontend
         }
         if document.type_specific_data:
             if 'tax_amount' in document.type_specific_data:
@@ -194,6 +195,8 @@ def _build_ocr_data_from_document(document: Document) -> Dict:
             if 'due_date' in document.type_specific_data:
                 due_date = document.type_specific_data['due_date']
                 ocr_data['due_date'] = due_date.isoformat() if hasattr(due_date, 'isoformat') else due_date
+            if 'contact_email' in document.type_specific_data:
+                ocr_data['contact_email'] = document.type_specific_data['contact_email']
     elif document.document_type == 'purchase_order':
         ocr_data = {
             'po_number': document.document_number,
@@ -206,6 +209,7 @@ def _build_ocr_data_from_document(document: Document) -> Dict:
             'currency': document.currency,
             'line_items': document.line_items or [],
             'vendor_match': document.vendor_match,
+            'type_specific_data': document.type_specific_data or {},  # Include full type_specific_data for frontend
         }
         if document.type_specific_data:
             if 'order_date' in document.type_specific_data:

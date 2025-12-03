@@ -28,7 +28,7 @@ class Document(Base):
     type_specific_data = Column(JSON, nullable=True)
     
     # Line items as JSON array
-    # Format: [{"line_no": 1, "sku": "...", "description": "...", "quantity": 10, "unit_price": 5.00}]
+    # Format: [{"line_no": 1, "description": "...", "quantity": 10, "unit_price": 5.00}]
     line_items = Column(JSON, nullable=True)
     
     # File and OCR metadata

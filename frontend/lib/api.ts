@@ -36,7 +36,6 @@ export interface InvoiceDetail extends Invoice {
 export interface InvoiceLine {
   id: number;
   line_no: number;
-  sku?: string;
   description: string;
   quantity: number;
   unit_price: number;
@@ -59,7 +58,6 @@ export interface PurchaseOrder {
 export interface POLine {
   id: number;
   line_no: number;
-  sku?: string;
   description: string;
   quantity: number;
   unit_price: number;
@@ -89,8 +87,6 @@ export interface LineItemMatch {
   po_line_no?: number;
   matched: boolean;
   issues: string[];
-  invoice_sku?: string;
-  po_sku?: string;
   invoice_quantity?: number;
   po_quantity?: number;
   invoice_unit_price?: number;
@@ -174,7 +170,6 @@ export interface POCreate {
 
 export interface POLineCreate {
   line_no: number;
-  sku?: string;
   description: string;
   quantity: number;
   unit_price: number;
@@ -261,7 +256,6 @@ export interface InvoiceSaveData {
   contact_email?: string;
   line_items?: {
     line_no: number;
-    sku?: string;
     description: string;
     quantity: number;
     unit_price: number;
@@ -278,7 +272,6 @@ export interface POSaveData {
   requester_email?: string;
   po_lines?: {
     line_no: number;
-    sku?: string;
     description: string;
     quantity: number;
     unit_price: number;

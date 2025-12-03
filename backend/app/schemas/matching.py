@@ -9,8 +9,6 @@ class LineItemMatch(BaseModel):
     po_line_no: Optional[int] = None
     matched: bool
     issues: List[str] = []
-    invoice_sku: Optional[str] = None
-    po_sku: Optional[str] = None
     invoice_quantity: Optional[Decimal] = None
     po_quantity: Optional[Decimal] = None
     invoice_unit_price: Optional[Decimal] = None

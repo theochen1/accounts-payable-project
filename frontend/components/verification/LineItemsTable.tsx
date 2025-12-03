@@ -8,7 +8,6 @@ import { Plus, Trash2 } from 'lucide-react';
 
 interface LineItem {
   line_no: number;
-  sku?: string;
   description: string;
   quantity: number;
   unit_price: number;
@@ -61,7 +60,6 @@ export default function LineItemsTable({ items, onChange }: LineItemsTableProps)
           <TableHeader>
             <TableRow>
               <TableHead className="w-12">#</TableHead>
-              <TableHead>SKU</TableHead>
               <TableHead>Description</TableHead>
               <TableHead className="w-24">Qty</TableHead>
               <TableHead className="w-32">Unit Price</TableHead>
@@ -73,13 +71,6 @@ export default function LineItemsTable({ items, onChange }: LineItemsTableProps)
             {editingItems.map((item, index) => (
               <TableRow key={index}>
                 <TableCell className="font-medium">{item.line_no}</TableCell>
-                <TableCell>
-                  <Input
-                    value={item.sku || ''}
-                    onChange={(e) => updateItem(index, 'sku', e.target.value)}
-                    className="h-8"
-                  />
-                </TableCell>
                 <TableCell>
                   <Input
                     value={item.description}
