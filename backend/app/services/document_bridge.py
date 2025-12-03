@@ -3,6 +3,7 @@ Service to bridge Document records (from OCR) to Invoice/PurchaseOrder records (
 Converts finalized Document records into structured Invoice or PurchaseOrder records.
 """
 import logging
+import difflib
 from decimal import Decimal
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -11,12 +12,112 @@ from app.models.invoice import Invoice
 from app.models.invoice_line import InvoiceLine
 from app.models.purchase_order import PurchaseOrder
 from app.models.po_line import POLine
+from app.models.vendor import Vendor
 
 logger = logging.getLogger(__name__)
 
 
 class DocumentBridge:
     """Bridge service to convert Document records to Invoice/PO records"""
+    
+    def _ensure_vendor_id(self, document: Document, db: Session) -> int:
+        """
+        Ensure vendor_id is set. If missing, try to get from vendor_match or create new vendor.
+        
+        Args:
+            document: Document record
+            db: Database session
+            
+        Returns:
+            vendor_id (int)
+            
+        Raises:
+            ValueError if vendor_name is also missing
+        """
+        vendor_id = document.vendor_id
+        
+        # Try to get from vendor_match first
+        if vendor_id is None and document.vendor_match and isinstance(document.vendor_match, dict):
+            vendor_id = document.vendor_match.get('matched_vendor_id')
+        
+        # If still None and we have a vendor_name, create or find vendor
+        if vendor_id is None and document.vendor_name:
+            vendor_name = document.vendor_name.strip()
+            
+            # Try exact match first (case-insensitive)
+            existing_vendor = db.query(Vendor).filter(
+                Vendor.name.ilike(vendor_name)
+            ).first()
+            
+            if existing_vendor:
+                vendor_id = existing_vendor.id
+                logger.info(f"Found existing vendor (exact match): '{vendor_name}' -> ID {vendor_id}")
+            else:
+                # Try fuzzy match - normalize vendor names for comparison
+                all_vendors = db.query(Vendor).all()
+                normalized_input = self._normalize_vendor_name(vendor_name)
+                
+                best_match = None
+                best_ratio = 0.0
+                
+                for vendor in all_vendors:
+                    normalized_vendor = self._normalize_vendor_name(vendor.name)
+                    # Use simple similarity check
+                    similarity = self._string_similarity(normalized_input, normalized_vendor)
+                    if similarity > best_ratio and similarity >= 0.8:  # 80% similarity threshold
+                        best_ratio = similarity
+                        best_match = vendor
+                
+                if best_match:
+                    vendor_id = best_match.id
+                    logger.info(f"Found existing vendor (fuzzy match, {best_ratio:.0%}): '{vendor_name}' -> '{best_match.name}' (ID {vendor_id})")
+                else:
+                    # Create new vendor
+                    new_vendor = Vendor(name=vendor_name)
+                    db.add(new_vendor)
+                    db.flush()
+                    vendor_id = new_vendor.id
+                    logger.info(f"Created new vendor: '{vendor_name}' with ID {vendor_id}")
+        
+        # If still None, raise error
+        if vendor_id is None:
+            raise ValueError(
+                f"Cannot determine vendor: vendor_id is not set and vendor_name is missing. "
+                f"Please verify the document and ensure vendor information is provided."
+            )
+        
+        return vendor_id
+    
+    def _normalize_vendor_name(self, name: str) -> str:
+        """Normalize vendor name for comparison (remove common suffixes, lowercase)"""
+        if not name:
+            return ""
+        
+        # Remove common company suffixes
+        suffixes = [
+            ', Inc.', ', Inc', ' Inc.', ' Inc',
+            ', LLC', ', L.L.C.', ' LLC', ' L.L.C.',
+            ', Corp.', ', Corp', ' Corp.', ' Corp',
+            ', Ltd.', ', Ltd', ' Ltd.', ' Ltd',
+            ', Co.', ', Co', ' Co.', ' Co',
+            ' Corporation', ' Incorporated', ' Limited',
+            ' Company', ' & Co', ' and Company',
+            ', PLC', ' PLC', ' plc',
+            ' GmbH', ' AG', ' S.A.', ' SA',
+        ]
+        
+        normalized = name.strip()
+        for suffix in suffixes:
+            if normalized.lower().endswith(suffix.lower()):
+                normalized = normalized[:-len(suffix)].strip()
+        
+        # Remove extra whitespace and convert to lowercase
+        normalized = ' '.join(normalized.split()).lower()
+        return normalized
+    
+    def _string_similarity(self, s1: str, s2: str) -> float:
+        """Calculate similarity ratio between two strings (0.0 to 1.0)"""
+        return difflib.SequenceMatcher(None, s1, s2).ratio()
     
     def create_invoice_from_document(self, document: Document, db: Session) -> Invoice:
         """
@@ -42,19 +143,7 @@ class DocumentBridge:
             return existing_invoice
         
         # Ensure vendor_id is set (required for Invoice)
-        vendor_id = document.vendor_id
-        if vendor_id is None:
-            # Try to get vendor_id from vendor_match if available
-            if document.vendor_match and isinstance(document.vendor_match, dict):
-                vendor_id = document.vendor_match.get('matched_vendor_id')
-            
-            # If still None, raise an error
-            if vendor_id is None:
-                raise ValueError(
-                    f"Cannot create Invoice: vendor_id is required but not set. "
-                    f"Please verify the document and select a vendor. "
-                    f"Document vendor_name: {document.vendor_name}"
-                )
+        vendor_id = self._ensure_vendor_id(document, db)
         
         # Extract PO number from type_specific_data
         po_number = None
@@ -135,19 +224,7 @@ class DocumentBridge:
             return existing_po
         
         # Ensure vendor_id is set (required for PurchaseOrder)
-        vendor_id = document.vendor_id
-        if vendor_id is None:
-            # Try to get vendor_id from vendor_match if available
-            if document.vendor_match and isinstance(document.vendor_match, dict):
-                vendor_id = document.vendor_match.get('matched_vendor_id')
-            
-            # If still None, raise an error
-            if vendor_id is None:
-                raise ValueError(
-                    f"Cannot create PurchaseOrder: vendor_id is required but not set. "
-                    f"Please verify the document and select a vendor. "
-                    f"Document vendor_name: {document.vendor_name}"
-                )
+        vendor_id = self._ensure_vendor_id(document, db)
         
         # Extract PO-specific fields from type_specific_data
         requester_email = None
