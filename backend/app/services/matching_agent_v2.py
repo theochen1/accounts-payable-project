@@ -299,29 +299,27 @@ class MatchingAgentV2:
             po_qty = float(po_line.quantity) if po_line.quantity else 0
             
             if abs(inv_qty - po_qty) > 0.01:  # Allow 1 cent rounding
+                # Create a single LINE_ITEM_DISCREPANCY issue for quantity mismatches
+                # Use specific message based on whether it's an overage or underage
                 if inv_qty > po_qty:
-                    issues.append(MatchingIssueV2(
-                        category=IssueCategory.QUANTITY_OVERAGE,
-                        severity="high",
-                        message=f"Line {inv_line.line_no}: Invoice quantity ({inv_qty}) exceeds PO quantity ({po_qty})",
-                        details={
-                            "invoice_qty": inv_qty,
-                            "po_qty": po_qty,
-                            "overage": inv_qty - po_qty
-                        },
-                        line_number=inv_line.line_no
-                    ))
+                    message = f"Line {inv_line.line_no}: Invoice quantity ({inv_qty}) exceeds PO quantity ({po_qty})"
+                    severity = "high"
                 else:
-                    issues.append(MatchingIssueV2(
-                        category=IssueCategory.LINE_ITEM_DISCREPANCY,
-                        severity="medium",
-                        message=f"Line {inv_line.line_no}: Quantity mismatch (invoice: {inv_qty}, PO: {po_qty})",
-                        details={
-                            "invoice_qty": inv_qty,
-                            "po_qty": po_qty
-                        },
-                        line_number=inv_line.line_no
-                    ))
+                    message = f"Line {inv_line.line_no}: Invoice quantity ({inv_qty}) is less than PO quantity ({po_qty})"
+                    severity = "medium"
+                
+                issues.append(MatchingIssueV2(
+                    category=IssueCategory.LINE_ITEM_DISCREPANCY,
+                    severity=severity,
+                    message=message,
+                    details={
+                        "invoice_qty": inv_qty,
+                        "po_qty": po_qty,
+                        "overage": inv_qty - po_qty if inv_qty > po_qty else None,
+                        "field": "quantity"
+                    },
+                    line_number=inv_line.line_no
+                ))
             
             # Exact unit price match
             inv_price = float(inv_line.unit_price) if inv_line.unit_price else 0

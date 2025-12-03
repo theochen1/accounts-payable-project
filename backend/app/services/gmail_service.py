@@ -30,19 +30,43 @@ class GmailService:
     
     def __init__(self):
         """Initialize Gmail API client"""
-        self.sender_email = os.getenv('GMAIL_SENDER_EMAIL') or settings.gmail_sender_email if hasattr(settings, 'gmail_sender_email') else None
-        self.creds = self._load_credentials()
+        self.sender_email = os.getenv('GMAIL_SENDER_EMAIL') or (settings.gmail_sender_email if hasattr(settings, 'gmail_sender_email') else None)
+        self.creds = None
         self.service = None
+        self.init_error = None
+        
+        # Log what credentials are available
+        has_json = bool(os.getenv('GMAIL_CREDENTIALS_JSON'))
+        has_separate = all([os.getenv('GMAIL_CLIENT_ID'), os.getenv('GMAIL_CLIENT_SECRET'), os.getenv('GMAIL_REFRESH_TOKEN')])
+        
+        logger.info(f"Gmail credentials check: GMAIL_CREDENTIALS_JSON={'set' if has_json else 'not set'}, "
+                   f"GMAIL_CLIENT_ID={'set' if os.getenv('GMAIL_CLIENT_ID') else 'not set'}, "
+                   f"GMAIL_CLIENT_SECRET={'set' if os.getenv('GMAIL_CLIENT_SECRET') else 'not set'}, "
+                   f"GMAIL_REFRESH_TOKEN={'set' if os.getenv('GMAIL_REFRESH_TOKEN') else 'not set'}, "
+                   f"GMAIL_SENDER_EMAIL={'set' if self.sender_email else 'not set'}")
+        
+        if not has_json and not has_separate:
+            self.init_error = "Missing Gmail credentials. Set either GMAIL_CREDENTIALS_JSON or (GMAIL_CLIENT_ID + GMAIL_CLIENT_SECRET + GMAIL_REFRESH_TOKEN)"
+            logger.warning(self.init_error)
+            return
+        
+        if not self.sender_email:
+            self.init_error = "GMAIL_SENDER_EMAIL not set"
+            logger.warning(self.init_error)
+            return
+        
+        self.creds = self._load_credentials()
         
         if self.creds:
             try:
                 self.service = build('gmail', 'v1', credentials=self.creds)
                 logger.info("Gmail service initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize Gmail service: {e}")
+                self.init_error = f"Failed to build Gmail service: {e}"
+                logger.error(self.init_error)
                 self.service = None
         else:
-            logger.warning("Gmail credentials not available - email sending will be disabled")
+            logger.warning("Gmail credentials could not be loaded - email sending will be disabled")
     
     def _load_credentials(self) -> Optional[Credentials]:
         """Load Gmail API credentials from environment or OAuth flow"""
@@ -111,7 +135,8 @@ class GmailService:
             HttpError if sending fails
         """
         if not self.service:
-            raise Exception("Gmail service not initialized - check credentials")
+            error_detail = self.init_error or "Gmail service not initialized - check credentials"
+            raise Exception(f"Gmail service not initialized: {error_detail}")
         
         if not self.sender_email:
             raise Exception("GMAIL_SENDER_EMAIL not configured")

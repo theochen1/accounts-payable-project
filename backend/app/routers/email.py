@@ -33,6 +33,20 @@ email_template_service = EmailTemplateService()
 gmail_service = GmailService()
 
 
+@router.get("/status")
+def get_email_service_status():
+    """
+    Check the status of the email service.
+    Returns whether Gmail is properly configured.
+    """
+    return {
+        "gmail_service_initialized": gmail_service.service is not None,
+        "gmail_sender_email": gmail_service.sender_email or "not configured",
+        "credentials_loaded": gmail_service.creds is not None,
+        "error": gmail_service.init_error
+    }
+
+
 @router.post("/draft", response_model=EmailDraftResponse)
 async def draft_email(
     request: EmailDraftRequest,
