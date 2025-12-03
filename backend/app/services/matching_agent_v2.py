@@ -340,7 +340,8 @@ class MatchingAgentV2:
                     line_number=inv_line.line_no
                 ))
             
-            # SKU/description match (if SKU exists)
+            # SKU/description match (only if both have SKUs - skip if either is missing)
+            # Only validate SKU match if both invoice and PO have SKU values
             if inv_line.sku and po_line.sku:
                 if inv_line.sku != po_line.sku:
                     issues.append(MatchingIssueV2(
@@ -353,6 +354,7 @@ class MatchingAgentV2:
                         },
                         line_number=inv_line.line_no
                     ))
+            # If SKUs don't exist, skip SKU validation entirely
         
         # Check for unmatched PO lines
         for po_line in po_lines:

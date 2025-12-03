@@ -238,20 +238,20 @@ class DocumentPairService:
                 severity="warning" if not desc_match and po_line else None
             ))
             
-            # SKU comparison
-            sku_match = False
-            if po_line and inv_line.sku and po_line.sku:
+            # SKU comparison (only if both invoice and PO have SKUs)
+            # Skip SKU comparison if either side doesn't have SKU data
+            if inv_line.sku and po_line and po_line.sku:
                 sku_match = inv_line.sku.strip().lower() == po_line.sku.strip().lower()
-            
-            field_comparisons.append(FieldComparison(
-                field_name="sku",
-                invoice_value=inv_line.sku,
-                po_value=po_line.sku if po_line else None,
-                match=sku_match,
-                similarity=None,
-                diff_explanation=None if sku_match else "SKU mismatch",
-                severity="warning" if not sku_match and po_line else None
-            ))
+                
+                field_comparisons.append(FieldComparison(
+                    field_name="sku",
+                    invoice_value=inv_line.sku,
+                    po_value=po_line.sku,
+                    match=sku_match,
+                    similarity=None,
+                    diff_explanation=None if sku_match else "SKU mismatch",
+                    severity="warning" if not sku_match else None
+                ))
             
             # Quantity comparison
             qty_match = False
