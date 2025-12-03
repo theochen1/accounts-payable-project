@@ -103,9 +103,24 @@ class GmailService:
                 )
                 # Refresh to get access token
                 creds.refresh(Request())
+                logger.info("Successfully loaded and refreshed OAuth2 credentials")
                 return creds
             except Exception as e:
+                error_msg = str(e)
                 logger.error(f"Failed to load credentials from OAuth2 tokens: {e}")
+                
+                # Provide more specific error guidance
+                if 'unauthorized_client' in error_msg.lower():
+                    logger.error("UNAUTHORIZED_CLIENT error - This usually means:")
+                    logger.error("  1. The refresh token is invalid or expired")
+                    logger.error("  2. The refresh token was generated with different OAuth credentials")
+                    logger.error("  3. The OAuth consent screen needs to be configured")
+                    logger.error("  4. The refresh token needs to be regenerated with scope: https://www.googleapis.com/auth/gmail.send")
+                elif 'invalid_grant' in error_msg.lower():
+                    logger.error("INVALID_GRANT error - The refresh token has expired or been revoked")
+                    logger.error("  You need to generate a new refresh token")
+                
+                return None
         
         logger.warning("No Gmail credentials found - email sending disabled")
         return None

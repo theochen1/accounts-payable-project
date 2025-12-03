@@ -39,11 +39,28 @@ def get_email_service_status():
     Check the status of the email service.
     Returns whether Gmail is properly configured.
     """
+    import os
+    has_client_id = bool(os.getenv('GMAIL_CLIENT_ID'))
+    has_client_secret = bool(os.getenv('GMAIL_CLIENT_SECRET'))
+    has_refresh_token = bool(os.getenv('GMAIL_REFRESH_TOKEN'))
+    has_credentials_json = bool(os.getenv('GMAIL_CREDENTIALS_JSON'))
+    
     return {
         "gmail_service_initialized": gmail_service.service is not None,
         "gmail_sender_email": gmail_service.sender_email or "not configured",
         "credentials_loaded": gmail_service.creds is not None,
-        "error": gmail_service.init_error
+        "error": gmail_service.init_error,
+        "env_vars": {
+            "GMAIL_CLIENT_ID": "set" if has_client_id else "not set",
+            "GMAIL_CLIENT_SECRET": "set" if has_client_secret else "not set",
+            "GMAIL_REFRESH_TOKEN": "set" if has_refresh_token else "not set",
+            "GMAIL_CREDENTIALS_JSON": "set" if has_credentials_json else "not set",
+            "GMAIL_SENDER_EMAIL": "set" if gmail_service.sender_email else "not set"
+        },
+        "troubleshooting": {
+            "needs_refresh_token": not has_refresh_token and not has_credentials_json,
+            "instructions": "To get a refresh token, use OAuth 2.0 Playground: https://developers.google.com/oauthplayground/ with scope: https://www.googleapis.com/auth/gmail.send"
+        }
     }
 
 

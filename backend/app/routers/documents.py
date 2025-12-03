@@ -317,16 +317,39 @@ def classify_document(
 
 @router.post("/{document_id}/process-ocr", response_model=DocumentOCRResult)
 async def process_ocr(document_id: int, db: Session = Depends(get_db)):
-    """Process document with OCR - status: classified -> ocr_processing -> pending_verification"""
+    """Process document with OCR - status: classified -> ocr_processing -> pending_verification
+    
+    Can also process from 'uploaded' status if document_type is already set.
+    """
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if document.status != "classified":
-        raise HTTPException(status_code=400, detail=f"Document must be classified before OCR. Current status: {document.status}")
+    # Allow OCR from 'classified' or 'uploaded' status (if document_type is set)
+    valid_statuses = ["classified", "uploaded", "ocr_processing", "pending_verification"]
+    if document.status not in valid_statuses:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Document must be in one of these statuses before OCR: {valid_statuses}. Current status: {document.status}"
+        )
     
+    # If status is 'uploaded', require document_type to be set
+    if document.status == "uploaded" and not document.document_type:
+        raise HTTPException(
+            status_code=400, 
+            detail="Document type must be set before OCR processing. Please classify the document first."
+        )
+    
+    # If status is already 'pending_verification', allow re-processing
+    if document.status == "pending_verification":
+        logger.info(f"Re-processing OCR for document {document_id} that is already in pending_verification status")
+    
+    # If document_type is not set, try to infer from status or require classification
     if not document.document_type:
-        raise HTTPException(status_code=400, detail="Document type must be set before OCR processing")
+        raise HTTPException(
+            status_code=400, 
+            detail="Document type must be set before OCR processing. Please classify the document first using POST /{document_id}/classify"
+        )
     
     # Set to processing
     document.status = "ocr_processing"
