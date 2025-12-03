@@ -2,9 +2,9 @@
 # This prevents Node.js detection from frontend package.json
 providers = ["python"]
 
-# Poppler required for pdf2image
+# Poppler required for pdf2image, Python 3.11 explicitly added
 [phases.setup]
-nixPkgs = ["poppler_utils"]
+nixPkgs = ["...", "python311", "poppler_utils"]
 
 [start]
 cmd = "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"

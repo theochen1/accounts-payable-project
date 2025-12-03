@@ -347,7 +347,7 @@ async def process_ocr(document_id: int, db: Session = Depends(get_db)):
             else:
                 ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         else:
-            ocr_data = await active_ocr_service.process_file(file_content, document.filename)
+        ocr_data = await active_ocr_service.process_file(file_content, document.filename)
         
         # Normalize OCR output using FieldMapper
         # First, ensure document_type is passed correctly (handle 'po' -> 'purchase_order' mapping)
@@ -546,7 +546,7 @@ async def finalize_document(
     from app.services.document_bridge import document_bridge
     
     created_record = None
-    if document.document_type == "invoice":
+        if document.document_type == "invoice":
         try:
             invoice = document_bridge.create_invoice_from_document(document, db)
             created_record = {"type": "invoice", "id": invoice.id, "invoice_number": invoice.invoice_number}
@@ -565,13 +565,13 @@ async def finalize_document(
                     if matching_result.match_status == "needs_review":
                         review_queue_service.add_to_queue(matching_result, db)
                         logger.info(f"Added invoice {invoice.id} to review queue")
-                    else:
+        else:
                         logger.info(f"Invoice {invoice.id} matched successfully")
-                except Exception as e:
+    except Exception as e:
                     logger.error(f"Error running matching for invoice {invoice.id}: {e}", exc_info=True)
                     # Continue anyway - matching can be retried later
         
-        except Exception as e:
+    except Exception as e:
             logger.error(f"Error creating Invoice from Document {document_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to create Invoice: {str(e)}")
     
@@ -580,7 +580,7 @@ async def finalize_document(
             po = document_bridge.create_po_from_document(document, db)
             created_record = {"type": "purchase_order", "id": po.id, "po_number": po.po_number}
             logger.info(f"Created PurchaseOrder {po.id} from Document {document_id}")
-        except Exception as e:
+    except Exception as e:
             logger.error(f"Error creating PurchaseOrder from Document {document_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to create PurchaseOrder: {str(e)}")
     
@@ -638,7 +638,7 @@ def list_processed_documents(
     
     results = []
     for doc in documents:
-        results.append(ProcessedDocumentResponse(
+            results.append(ProcessedDocumentResponse(
             id=doc.id,
             document_type=doc.document_type,
             document_number=doc.document_number or "",
@@ -648,6 +648,6 @@ def list_processed_documents(
             status=doc.status,
             document_date=doc.document_date,
             created_at=doc.created_at
-        ))
+            ))
     
     return results
