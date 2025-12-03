@@ -129,8 +129,8 @@ export default function DocumentsPage() {
 
   const filteredDocuments = (() => {
     if (statusFilter === 'all') {
-      // Exclude processed from "all" view
-      return documents.filter((d) => d.status !== 'processed');
+      // Include all documents (including processed)
+      return documents;
     } else if (statusFilter === 'pending') {
       // Include all pending-related statuses
       return documents.filter((d) => 
@@ -173,7 +173,7 @@ export default function DocumentsPage() {
         <div className="max-w-7xl mx-auto space-y-6">
           <Tabs value={statusFilter} onValueChange={setStatusFilter}>
             <TabsList>
-              <TabsTrigger value="all">All ({documents.filter((d) => d.status !== 'processed').length})</TabsTrigger>
+              <TabsTrigger value="all">All ({documents.length})</TabsTrigger>
               <TabsTrigger value="pending">
                 Pending ({documents.filter((d) => d.status === 'pending' || d.status === 'uploaded' || d.status === 'classified' || d.status === 'pending_verification').length})
               </TabsTrigger>

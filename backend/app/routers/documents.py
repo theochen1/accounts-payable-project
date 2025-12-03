@@ -552,24 +552,23 @@ async def finalize_document(
             created_record = {"type": "invoice", "id": invoice.id, "invoice_number": invoice.invoice_number}
             logger.info(f"Created Invoice {invoice.id} from Document {document_id}")
             
-            # Trigger matching if PO exists
-            if invoice.po_number:
-                from app.services.matching_agent_v2 import MatchingAgentV2
-                from app.services.review_queue_service import review_queue_service
+            # Trigger matching for ALL invoices (matching agent handles missing PO numbers)
+            from app.services.matching_agent_v2 import MatchingAgentV2
+            from app.services.review_queue_service import review_queue_service
+            
+            try:
+                agent = MatchingAgentV2(db)
+                matching_result = await agent.process_invoice(invoice.id)
                 
-                try:
-                    agent = MatchingAgentV2(db)
-                    matching_result = await agent.process_invoice(invoice.id)
-                    
-                    # Add to review queue if needed
-                    if matching_result.match_status == "needs_review":
-                        review_queue_service.add_to_queue(matching_result, db)
-                        logger.info(f"Added invoice {invoice.id} to review queue")
-                    else:
-                        logger.info(f"Invoice {invoice.id} matched successfully")
-                except Exception as e:
-                    logger.error(f"Error running matching for invoice {invoice.id}: {e}", exc_info=True)
-                    # Continue anyway - matching can be retried later
+                # Add to review queue if needed
+                if matching_result.match_status == "needs_review":
+                    review_queue_service.add_to_queue(matching_result, db)
+                    logger.info(f"Added invoice {invoice.id} to review queue")
+                else:
+                    logger.info(f"Invoice {invoice.id} matched successfully")
+            except Exception as e:
+                logger.error(f"Error running matching for invoice {invoice.id}: {e}", exc_info=True)
+                # Continue anyway - matching can be retried later
         
         except ValueError as e:
             # Validation errors (e.g., missing vendor_id)
