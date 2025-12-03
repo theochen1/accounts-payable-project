@@ -122,7 +122,7 @@ def list_review_queue(
     from sqlalchemy.orm import joinedload
     
     query = db.query(ReviewQueue).options(
-        joinedload(ReviewQueue.matching_result).joinedload(MatchingResult.invoice).joinedload("vendor")
+        joinedload(ReviewQueue.matching_result).joinedload(MatchingResult.invoice).joinedload(Invoice.vendor)
     )
     
     # Filter by priority

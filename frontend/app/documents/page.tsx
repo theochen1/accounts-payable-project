@@ -39,8 +39,13 @@ export default function DocumentsPage() {
   const loadDocuments = async () => {
     try {
       const docs = await documentApi.list();
-      // Filter out processed documents (they're in the processed archive)
-      setDocuments(docs.filter((d) => d.status !== 'processed'));
+      // Include all documents - let the tabs handle filtering
+      setDocuments(docs);
+      // Debug: Log processed documents count
+      const processedCount = docs.filter((d) => d.status === 'processed').length;
+      if (processedCount > 0) {
+        console.log(`Loaded ${processedCount} processed documents. They will appear in the "Processed" tab.`);
+      }
     } catch (error) {
       console.error('Failed to load documents:', error);
     } finally {
@@ -122,10 +127,29 @@ export default function DocumentsPage() {
     loadDocuments();
   };
 
-  const filteredDocuments =
-    statusFilter === 'all'
-      ? documents
-      : documents.filter((d) => d.status === statusFilter);
+  const filteredDocuments = (() => {
+    if (statusFilter === 'all') {
+      // Exclude processed from "all" view
+      return documents.filter((d) => d.status !== 'processed');
+    } else if (statusFilter === 'pending') {
+      // Include all pending-related statuses
+      return documents.filter((d) => 
+        d.status === 'pending' || 
+        d.status === 'uploaded' || 
+        d.status === 'classified' || 
+        d.status === 'pending_verification'
+      );
+    } else if (statusFilter === 'processing') {
+      // Include all processing-related statuses
+      return documents.filter((d) => 
+        d.status === 'processing' || 
+        d.status === 'ocr_processing'
+      );
+    } else {
+      // For 'processed' and 'error', exact match
+      return documents.filter((d) => d.status === statusFilter);
+    }
+  })();
 
   if (loading) {
     return (
@@ -149,12 +173,12 @@ export default function DocumentsPage() {
         <div className="max-w-7xl mx-auto space-y-6">
           <Tabs value={statusFilter} onValueChange={setStatusFilter}>
             <TabsList>
-              <TabsTrigger value="all">All ({documents.length})</TabsTrigger>
+              <TabsTrigger value="all">All ({documents.filter((d) => d.status !== 'processed').length})</TabsTrigger>
               <TabsTrigger value="pending">
-                Pending ({documents.filter((d) => d.status === 'pending').length})
+                Pending ({documents.filter((d) => d.status === 'pending' || d.status === 'uploaded' || d.status === 'classified' || d.status === 'pending_verification').length})
               </TabsTrigger>
               <TabsTrigger value="processing">
-                Processing ({documents.filter((d) => d.status === 'processing').length})
+                Processing ({documents.filter((d) => d.status === 'processing' || d.status === 'ocr_processing').length})
               </TabsTrigger>
               <TabsTrigger value="processed">
                 Processed ({documents.filter((d) => d.status === 'processed').length})
