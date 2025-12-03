@@ -110,6 +110,7 @@ def get_pair(pair_id: UUID, db: Session = Depends(get_db)):
         invoice_date=invoice.invoice_date,
         total_amount=invoice.total_amount,
         currency=invoice.currency,
+        contact_email=invoice.contact_email,
         pdf_storage_path=invoice.pdf_storage_path,
         ocr_json=invoice.ocr_json,
         status=invoice.status,
@@ -126,7 +127,6 @@ def get_pair(pair_id: UUID, db: Session = Depends(get_db)):
         InvoiceLineResponse(
             id=line.id,
             line_no=line.line_no,
-            sku=line.sku,
             description=line.description,
             quantity=line.quantity,
             unit_price=line.unit_price
@@ -154,7 +154,6 @@ def get_pair(pair_id: UUID, db: Session = Depends(get_db)):
                 POLineResponse(
                     id=line.id,
                     line_no=line.line_no,
-                    sku=line.sku,
                     description=line.description,
                     quantity=line.quantity,
                     unit_price=line.unit_price
