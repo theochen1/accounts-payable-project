@@ -234,6 +234,10 @@ def oauth_callback(
             if redirect_uri not in client_config["web"]["redirect_uris"]:
                 client_config["web"]["redirect_uris"].append(redirect_uri)
         
+        # Extract client_id and client_secret for the response (regardless of which method was used)
+        client_id = client_config.get("web", {}).get("client_id", "")
+        client_secret = client_config.get("web", {}).get("client_secret", "")
+        
         flow = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
@@ -258,7 +262,7 @@ def oauth_callback(
             "success": True,
             "refresh_token": credentials.refresh_token,
             "token_uri": credentials.token_uri,
-            "client_id": credentials.client_id,
+            "client_id": credentials.client_id or client_id,
             "client_secret": client_secret,  # Return for convenience, user should keep it secure
             "scopes": credentials.scopes,
             "instructions": "Set GMAIL_REFRESH_TOKEN environment variable with the refresh_token value above"
