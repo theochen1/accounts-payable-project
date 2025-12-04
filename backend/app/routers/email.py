@@ -43,8 +43,12 @@ def get_email_service_status():
     import os
     has_client_id = bool(os.getenv('GMAIL_CLIENT_ID'))
     has_client_secret = bool(os.getenv('GMAIL_CLIENT_SECRET'))
+    has_client_credentials_json = bool(os.getenv('GMAIL_CLIENT_CREDENTIALS_JSON'))
     has_refresh_token = bool(os.getenv('GMAIL_REFRESH_TOKEN'))
     has_credentials_json = bool(os.getenv('GMAIL_CREDENTIALS_JSON'))
+    
+    # OAuth is available if we have either the JSON file or individual client ID/secret
+    oauth_available = has_client_credentials_json or (has_client_id and has_client_secret)
     
     return {
         "gmail_service_initialized": gmail_service.service is not None,
@@ -52,6 +56,7 @@ def get_email_service_status():
         "credentials_loaded": gmail_service.creds is not None,
         "error": gmail_service.init_error,
         "env_vars": {
+            "GMAIL_CLIENT_CREDENTIALS_JSON": "set" if has_client_credentials_json else "not set",
             "GMAIL_CLIENT_ID": "set" if has_client_id else "not set",
             "GMAIL_CLIENT_SECRET": "set" if has_client_secret else "not set",
             "GMAIL_REFRESH_TOKEN": "set" if has_refresh_token else "not set",
@@ -62,7 +67,7 @@ def get_email_service_status():
             "needs_refresh_token": not has_refresh_token and not has_credentials_json,
             "instructions": "To get a refresh token, use OAuth 2.0 Playground: https://developers.google.com/oauthplayground/ with scope: https://www.googleapis.com/auth/gmail.send"
         },
-        "oauth_available": has_client_id and has_client_secret
+        "oauth_available": oauth_available
     }
 
 
@@ -72,29 +77,62 @@ def get_oauth_authorize_url(redirect_uri: str = Query(..., description="Frontend
     Generate Google OAuth authorization URL.
     
     Returns the URL that the user should be redirected to for Google login.
-    """
-    client_id = os.getenv('GMAIL_CLIENT_ID')
-    client_secret = os.getenv('GMAIL_CLIENT_SECRET')
     
-    if not client_id or not client_secret:
-        raise HTTPException(
-            status_code=400,
-            detail="GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET must be configured"
-        )
+    IMPORTANT: The redirect_uri must exactly match one of the Authorized redirect URIs
+    configured in your Google Cloud Console OAuth 2.0 Client ID settings.
+    
+    Credentials can be provided via:
+    1. GMAIL_CLIENT_CREDENTIALS_JSON - Full JSON file content as string (preferred)
+    2. GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET - Separate environment variables
+    """
+    logger.info(f"Generating OAuth URL with redirect_uri: {redirect_uri}")
     
     try:
         from google_auth_oauthlib.flow import Flow
+        import json
         
-        # Create OAuth flow
-        client_config = {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [redirect_uri]
+        # Try to load from JSON file first (GMAIL_CLIENT_CREDENTIALS_JSON)
+        client_credentials_json = os.getenv('GMAIL_CLIENT_CREDENTIALS_JSON')
+        client_config = None
+        
+        if client_credentials_json:
+            try:
+                # Parse the JSON string
+                creds_data = json.loads(client_credentials_json)
+                # Use the parsed JSON directly - it should have "web" key with client_id, client_secret, etc.
+                client_config = creds_data
+                logger.info("Loaded OAuth credentials from GMAIL_CLIENT_CREDENTIALS_JSON")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse GMAIL_CLIENT_CREDENTIALS_JSON: {e}, falling back to individual env vars")
+        
+        # Fall back to individual environment variables
+        if not client_config:
+            client_id = os.getenv('GMAIL_CLIENT_ID')
+            client_secret = os.getenv('GMAIL_CLIENT_SECRET')
+            
+            if not client_id or not client_secret:
+                raise HTTPException(
+                    status_code=400,
+                    detail="GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET must be configured, or set GMAIL_CLIENT_CREDENTIALS_JSON with the full JSON file content"
+                )
+            
+            # Create client config from individual env vars
+            client_config = {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
             }
-        }
+            logger.info("Loaded OAuth credentials from GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET")
+        
+        # Ensure redirect_uri is in the config (may already be there from JSON, or we add it)
+        if "web" in client_config:
+            if "redirect_uris" not in client_config["web"]:
+                client_config["web"]["redirect_uris"] = []
+            if redirect_uri not in client_config["web"]["redirect_uris"]:
+                client_config["web"]["redirect_uris"].append(redirect_uri)
         
         flow = Flow.from_client_config(
             client_config,
@@ -109,17 +147,27 @@ def get_oauth_authorize_url(redirect_uri: str = Query(..., description="Frontend
             prompt='consent'  # Force consent screen to get refresh token
         )
         
-        logger.info(f"Generated OAuth authorization URL with state: {state}")
+        logger.info(f"Generated OAuth authorization URL with state: {state}, redirect_uri: {redirect_uri}")
         
         return {
             "auth_url": authorization_url,
-            "state": state
+            "state": state,
+            "redirect_uri": redirect_uri  # Return for debugging
         }
     except Exception as e:
-        logger.error(f"Failed to generate OAuth URL: {e}")
+        error_msg = str(e)
+        logger.error(f"Failed to generate OAuth URL: {error_msg}, redirect_uri: {redirect_uri}")
+        
+        # Provide helpful error message for redirect_uri_mismatch
+        if 'redirect_uri_mismatch' in error_msg.lower() or 'redirect_uri' in error_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Redirect URI mismatch. The redirect URI '{redirect_uri}' must be added to your Google Cloud Console OAuth 2.0 Client ID settings under 'Authorized redirect URIs'. Go to: https://console.cloud.google.com/apis/credentials"
+            )
+        
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate OAuth authorization URL: {str(e)}"
+            detail=f"Failed to generate OAuth authorization URL: {error_msg}"
         )
 
 
@@ -134,29 +182,57 @@ def oauth_callback(
     
     Exchanges the authorization code for access and refresh tokens.
     Returns the refresh token that should be set as GMAIL_REFRESH_TOKEN.
+    
+    Credentials can be provided via:
+    1. GMAIL_CLIENT_CREDENTIALS_JSON - Full JSON file content as string (preferred)
+    2. GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET - Separate environment variables
     """
-    client_id = os.getenv('GMAIL_CLIENT_ID')
-    client_secret = os.getenv('GMAIL_CLIENT_SECRET')
-    
-    if not client_id or not client_secret:
-        raise HTTPException(
-            status_code=400,
-            detail="GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET must be configured"
-        )
-    
     try:
         from google_auth_oauthlib.flow import Flow
+        import json
         
-        # Create OAuth flow
-        client_config = {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [redirect_uri]
+        # Try to load from JSON file first (GMAIL_CLIENT_CREDENTIALS_JSON)
+        client_credentials_json = os.getenv('GMAIL_CLIENT_CREDENTIALS_JSON')
+        client_config = None
+        
+        if client_credentials_json:
+            try:
+                # Parse the JSON string
+                creds_data = json.loads(client_credentials_json)
+                # Use the parsed JSON directly - it should have "web" key with client_id, client_secret, etc.
+                client_config = creds_data
+                logger.info("Loaded OAuth credentials from GMAIL_CLIENT_CREDENTIALS_JSON")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse GMAIL_CLIENT_CREDENTIALS_JSON: {e}, falling back to individual env vars")
+        
+        # Fall back to individual environment variables
+        if not client_config:
+            client_id = os.getenv('GMAIL_CLIENT_ID')
+            client_secret = os.getenv('GMAIL_CLIENT_SECRET')
+            
+            if not client_id or not client_secret:
+                raise HTTPException(
+                    status_code=400,
+                    detail="GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET must be configured, or set GMAIL_CLIENT_CREDENTIALS_JSON with the full JSON file content"
+                )
+            
+            # Create client config from individual env vars
+            client_config = {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
             }
-        }
+            logger.info("Loaded OAuth credentials from GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET")
+        
+        # Ensure redirect_uri is in the config
+        if "web" in client_config:
+            if "redirect_uris" not in client_config["web"]:
+                client_config["web"]["redirect_uris"] = []
+            if redirect_uri not in client_config["web"]["redirect_uris"]:
+                client_config["web"]["redirect_uris"].append(redirect_uri)
         
         flow = Flow.from_client_config(
             client_config,

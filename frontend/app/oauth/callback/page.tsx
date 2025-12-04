@@ -42,7 +42,15 @@ export default function OAuthCallbackPage() {
         setResult(response);
         setStatus('success');
       } catch (err: any) {
-        setError(err.response?.data?.detail || err.message || 'Failed to exchange authorization code');
+        let errorMessage = err.response?.data?.detail || err.message || 'Failed to exchange authorization code';
+        
+        // Provide helpful guidance for redirect_uri_mismatch
+        if (errorMessage.includes('redirect_uri_mismatch') || errorMessage.includes('redirect_uri')) {
+          const redirectUri = `${window.location.origin}${window.location.pathname}`;
+          errorMessage = `Redirect URI mismatch. The redirect URI "${redirectUri}" must be added to your Google Cloud Console OAuth 2.0 Client ID settings under "Authorized redirect URIs".`;
+        }
+        
+        setError(errorMessage);
         setStatus('error');
       }
     };
@@ -85,14 +93,30 @@ export default function OAuthCallbackPage() {
             </CardTitle>
             <CardDescription>Failed to complete Gmail OAuth connection</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg bg-destructive/10 p-4">
-              <p className="text-sm text-destructive">{error}</p>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg bg-destructive/10 p-4">
+            <p className="text-sm text-destructive whitespace-pre-wrap">{error}</p>
+          </div>
+          
+          {error.includes('redirect_uri') && (
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-3 border border-blue-200 dark:border-blue-800">
+              <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-2">
+                How to fix:
+              </p>
+              <ol className="text-xs text-blue-700 dark:text-blue-300 space-y-1 list-decimal list-inside">
+                <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="underline">Google Cloud Console → APIs & Services → Credentials</a></li>
+                <li>Click on your OAuth 2.0 Client ID</li>
+                <li>Under "Authorized redirect URIs", add: <code className="bg-background px-1 py-0.5 rounded">{typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '/oauth/callback'}</code></li>
+                <li>Click "Save"</li>
+                <li>Try connecting again from Settings</li>
+              </ol>
             </div>
-            <Button onClick={() => router.push('/')} variant="outline" className="w-full">
-              Return to Dashboard
-            </Button>
-          </CardContent>
+          )}
+          
+          <Button onClick={() => router.push('/settings')} variant="outline" className="w-full">
+            Return to Settings
+          </Button>
+        </CardContent>
         </Card>
       </div>
     );

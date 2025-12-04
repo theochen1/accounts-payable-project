@@ -36,37 +36,54 @@ class GmailService:
         self.init_error = None
         
         # Log what credentials are available
-        has_json = bool(os.getenv('GMAIL_CREDENTIALS_JSON'))
-        has_separate = all([os.getenv('GMAIL_CLIENT_ID'), os.getenv('GMAIL_CLIENT_SECRET'), os.getenv('GMAIL_REFRESH_TOKEN')])
+        has_user_credentials_json = bool(os.getenv('GMAIL_CREDENTIALS_JSON'))  # User credentials (with refresh token)
+        has_client_credentials_json = bool(os.getenv('GMAIL_CLIENT_CREDENTIALS_JSON'))  # OAuth client credentials
+        has_client_id = bool(os.getenv('GMAIL_CLIENT_ID'))
+        has_client_secret = bool(os.getenv('GMAIL_CLIENT_SECRET'))
+        has_refresh_token = bool(os.getenv('GMAIL_REFRESH_TOKEN'))
         
-        logger.info(f"Gmail credentials check: GMAIL_CREDENTIALS_JSON={'set' if has_json else 'not set'}, "
-                   f"GMAIL_CLIENT_ID={'set' if os.getenv('GMAIL_CLIENT_ID') else 'not set'}, "
-                   f"GMAIL_CLIENT_SECRET={'set' if os.getenv('GMAIL_CLIENT_SECRET') else 'not set'}, "
-                   f"GMAIL_REFRESH_TOKEN={'set' if os.getenv('GMAIL_REFRESH_TOKEN') else 'not set'}, "
+        # Check if we have credentials for sending emails (user credentials with refresh token)
+        has_user_creds = has_user_credentials_json or (has_client_id and has_client_secret and has_refresh_token)
+        
+        # Check if we have OAuth client credentials (for OAuth flow, not for sending)
+        has_oauth_client_creds = has_client_credentials_json or (has_client_id and has_client_secret)
+        
+        logger.info(f"Gmail credentials check: "
+                   f"GMAIL_CREDENTIALS_JSON={'set' if has_user_credentials_json else 'not set'}, "
+                   f"GMAIL_CLIENT_CREDENTIALS_JSON={'set' if has_client_credentials_json else 'not set'}, "
+                   f"GMAIL_CLIENT_ID={'set' if has_client_id else 'not set'}, "
+                   f"GMAIL_CLIENT_SECRET={'set' if has_client_secret else 'not set'}, "
+                   f"GMAIL_REFRESH_TOKEN={'set' if has_refresh_token else 'not set'}, "
                    f"GMAIL_SENDER_EMAIL={'set' if self.sender_email else 'not set'}")
         
-        if not has_json and not has_separate:
-            self.init_error = "Missing Gmail credentials. Set either GMAIL_CREDENTIALS_JSON or (GMAIL_CLIENT_ID + GMAIL_CLIENT_SECRET + GMAIL_REFRESH_TOKEN)"
-            logger.warning(self.init_error)
-            return
+        # Only require user credentials if we're trying to send emails
+        # OAuth client credentials are optional (needed for OAuth flow setup)
+        if not has_user_creds:
+            # This is OK - we might just be setting up OAuth
+            logger.info("Gmail user credentials not set - OAuth setup may be in progress. Email sending will be disabled until refresh token is obtained.")
+            # Don't set init_error here - allow OAuth flow to work
         
         if not self.sender_email:
-            self.init_error = "GMAIL_SENDER_EMAIL not set"
-            logger.warning(self.init_error)
-            return
+            # Sender email is only needed when actually sending, not for OAuth setup
+            logger.info("GMAIL_SENDER_EMAIL not set - will be required when sending emails")
+            # Don't set init_error here - allow OAuth flow to work
         
-        self.creds = self._load_credentials()
-        
-        if self.creds:
-            try:
-                self.service = build('gmail', 'v1', credentials=self.creds)
-                logger.info("Gmail service initialized successfully")
-            except Exception as e:
-                self.init_error = f"Failed to build Gmail service: {e}"
-                logger.error(self.init_error)
-                self.service = None
+        # Only try to load credentials if we have user credentials (not just OAuth client credentials)
+        if has_user_creds:
+            self.creds = self._load_credentials()
+            
+            if self.creds:
+                try:
+                    self.service = build('gmail', 'v1', credentials=self.creds)
+                    logger.info("Gmail service initialized successfully")
+                except Exception as e:
+                    self.init_error = f"Failed to build Gmail service: {e}"
+                    logger.error(self.init_error)
+                    self.service = None
+            else:
+                logger.warning("Gmail credentials could not be loaded - email sending will be disabled")
         else:
-            logger.warning("Gmail credentials could not be loaded - email sending will be disabled")
+            logger.info("Gmail service initialized (OAuth setup mode - refresh token needed for email sending)")
     
     def _load_credentials(self) -> Optional[Credentials]:
         """Load Gmail API credentials from environment or OAuth flow"""
