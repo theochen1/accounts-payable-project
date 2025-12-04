@@ -11,6 +11,7 @@ const navigation = [
   { name: 'Matched Pairs', href: '/matching/pairs', icon: Link2 },
   { name: 'Review Queue', href: '/review-queue', icon: AlertCircle },
   { name: 'Processed', href: '/processed', icon: CheckCircle2 },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export default function Sidebar() {

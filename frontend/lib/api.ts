@@ -713,7 +713,68 @@ export interface EmailLog {
   created_at: string;
 }
 
+export interface EmailStatusResponse {
+  gmail_service_initialized: boolean;
+  gmail_sender_email: string;
+  credentials_loaded: boolean;
+  error?: string;
+  env_vars: {
+    GMAIL_CLIENT_ID: string;
+    GMAIL_CLIENT_SECRET: string;
+    GMAIL_REFRESH_TOKEN: string;
+    GMAIL_CREDENTIALS_JSON: string;
+    GMAIL_SENDER_EMAIL: string;
+  };
+  troubleshooting: {
+    needs_refresh_token: boolean;
+    instructions: string;
+  };
+  oauth_available?: boolean;
+}
+
+export interface OAuthAuthorizeResponse {
+  auth_url: string;
+  state: string;
+}
+
+export interface OAuthCallbackResponse {
+  success: boolean;
+  refresh_token: string;
+  token_uri: string;
+  client_id: string;
+  client_secret: string;
+  scopes: string[];
+  instructions: string;
+}
+
 export const emailApi = {
+  getStatus: async (): Promise<EmailStatusResponse> => {
+    const response = await api.get('/api/email/status');
+    return response.data;
+  },
+
+  getOAuthUrl: async (redirectUri: string): Promise<OAuthAuthorizeResponse> => {
+    const response = await api.get('/api/email/oauth/authorize', {
+      params: { redirect_uri: redirectUri },
+    });
+    return response.data;
+  },
+
+  exchangeOAuthCode: async (
+    code: string,
+    state: string | null,
+    redirectUri: string
+  ): Promise<OAuthCallbackResponse> => {
+    const response = await api.get('/api/email/oauth/callback', {
+      params: {
+        code,
+        state,
+        redirect_uri: redirectUri,
+      },
+    });
+    return response.data;
+  },
+
   draft: async (request: EmailDraftRequest): Promise<EmailDraftResponse> => {
     const response = await api.post('/api/email/draft', request);
     return response.data;

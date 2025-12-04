@@ -2,8 +2,9 @@
 Email API router - handles email drafting and sending for document pair escalations
 """
 import logging
+import os
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from uuid import UUID
 
@@ -21,7 +22,7 @@ from app.schemas.email import (
     EmailLogResponse
 )
 from app.services.email_template_service import EmailTemplateService
-from app.services.gmail_service import GmailService
+from app.services.gmail_service import GmailService, SCOPES
 from sqlalchemy.sql import func
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,138 @@ def get_email_service_status():
         "troubleshooting": {
             "needs_refresh_token": not has_refresh_token and not has_credentials_json,
             "instructions": "To get a refresh token, use OAuth 2.0 Playground: https://developers.google.com/oauthplayground/ with scope: https://www.googleapis.com/auth/gmail.send"
-        }
+        },
+        "oauth_available": has_client_id and has_client_secret
     }
+
+
+@router.get("/oauth/authorize")
+def get_oauth_authorize_url(redirect_uri: str = Query(..., description="Frontend redirect URI after OAuth")):
+    """
+    Generate Google OAuth authorization URL.
+    
+    Returns the URL that the user should be redirected to for Google login.
+    """
+    client_id = os.getenv('GMAIL_CLIENT_ID')
+    client_secret = os.getenv('GMAIL_CLIENT_SECRET')
+    
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=400,
+            detail="GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET must be configured"
+        )
+    
+    try:
+        from google_auth_oauthlib.flow import Flow
+        
+        # Create OAuth flow
+        client_config = {
+            "web": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri]
+            }
+        }
+        
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=SCOPES,
+            redirect_uri=redirect_uri
+        )
+        
+        # Generate authorization URL
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent'  # Force consent screen to get refresh token
+        )
+        
+        logger.info(f"Generated OAuth authorization URL with state: {state}")
+        
+        return {
+            "auth_url": authorization_url,
+            "state": state
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate OAuth URL: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate OAuth authorization URL: {str(e)}"
+        )
+
+
+@router.get("/oauth/callback")
+def oauth_callback(
+    code: str = Query(..., description="Authorization code from Google"),
+    state: str = Query(None, description="State parameter for CSRF protection"),
+    redirect_uri: str = Query(..., description="Redirect URI used in authorization")
+):
+    """
+    Handle OAuth callback from Google.
+    
+    Exchanges the authorization code for access and refresh tokens.
+    Returns the refresh token that should be set as GMAIL_REFRESH_TOKEN.
+    """
+    client_id = os.getenv('GMAIL_CLIENT_ID')
+    client_secret = os.getenv('GMAIL_CLIENT_SECRET')
+    
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=400,
+            detail="GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET must be configured"
+        )
+    
+    try:
+        from google_auth_oauthlib.flow import Flow
+        
+        # Create OAuth flow
+        client_config = {
+            "web": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri]
+            }
+        }
+        
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=SCOPES,
+            redirect_uri=redirect_uri
+        )
+        
+        # Exchange authorization code for tokens
+        flow.fetch_token(code=code)
+        
+        credentials = flow.credentials
+        
+        if not credentials.refresh_token:
+            raise HTTPException(
+                status_code=400,
+                detail="No refresh token received. Make sure 'prompt=consent' is used in authorization."
+            )
+        
+        logger.info("Successfully obtained OAuth credentials")
+        
+        # Return the refresh token and other info
+        return {
+            "success": True,
+            "refresh_token": credentials.refresh_token,
+            "token_uri": credentials.token_uri,
+            "client_id": credentials.client_id,
+            "client_secret": client_secret,  # Return for convenience, user should keep it secure
+            "scopes": credentials.scopes,
+            "instructions": "Set GMAIL_REFRESH_TOKEN environment variable with the refresh_token value above"
+        }
+    except Exception as e:
+        logger.error(f"Failed to exchange OAuth code: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to exchange authorization code: {str(e)}"
+        )
 
 
 @router.post("/draft", response_model=EmailDraftResponse)

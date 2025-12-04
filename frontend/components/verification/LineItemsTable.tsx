@@ -61,7 +61,7 @@ export default function LineItemsTable({ items, onChange }: LineItemsTableProps)
             <TableRow>
               <TableHead className="w-12">#</TableHead>
               <TableHead>Description</TableHead>
-              <TableHead className="w-24">Qty</TableHead>
+              <TableHead className="w-40">Qty</TableHead>
               <TableHead className="w-32">Unit Price</TableHead>
               <TableHead className="w-32">Total</TableHead>
               <TableHead className="w-12"></TableHead>
@@ -78,12 +78,12 @@ export default function LineItemsTable({ items, onChange }: LineItemsTableProps)
                     className="h-8"
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell className="w-40">
                   <Input
                     type="number"
                     value={item.quantity}
                     onChange={(e) => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                    className="h-8"
+                    className="h-8 w-full"
                   />
                 </TableCell>
                 <TableCell>
